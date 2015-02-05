@@ -1,6 +1,8 @@
 go-sbvector
 ===========
 
+[![Build Status](https://travis-ci.org/hideo55/go-sbvector.svg?branch=master)](https://travis-ci.org/hideo55/go-sbvector)
+
 Description
 ------------
 
