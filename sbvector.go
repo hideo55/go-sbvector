@@ -1,17 +1,35 @@
 package sbvector
 
 import (
+	"errors"
 	"github.com/hideo55/go-popcount"
 )
 
-// SBVector is succinct bit vector type.
-type SBVector struct {
+// BitVectorData holds impormation abount bit vector.
+type BitVectorData struct {
 	blocks       []uint64
-	ranks        []rankindex
+	ranks        []RankIndex
 	select1Table []uint64
 	select0Table []uint64
 	numOf1s      uint64
 	size         uint64
+}
+
+// SuccinctBitVector is interface of succinct bit vector.
+type SuccinctBitVector interface {
+	Set(i uint64, val bool)
+	PushBack(b bool)
+	PushBackBits(x uint64, length uint64)
+	Get(i uint64) (bool, error)
+	GetBits(pos uint64, length uint64) (uint64, error)
+	Rank1(i uint64) (uint64, error)
+	Rank0(i uint64) (uint64, error)
+	Rank(i uint64, b bool) (uint64, error)
+	Select1(x uint64) (uint64, error)
+	Select0(x uint64) (uint64, error)
+	Size() uint64
+	NumOfBits(b bool) uint64
+	Build(enableFasterSelect1 bool, enableFasterSelect0 bool)
 }
 
 const (
@@ -23,7 +41,8 @@ const (
 	sBlockSize uint64 = 64
 	lBlockSize uint64 = 512
 	blockRate  uint64 = 8
-	notFound   uint64 = 0xFFFFFFFFFFFFFFFF
+	// NotFound indicates `value not found`
+	NotFound uint64 = 0xFFFFFFFFFFFFFFFF
 )
 
 var selectTable = [8][256]uint8{
@@ -85,20 +104,36 @@ var selectTable = [8][256]uint8{
 		7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 6},
 }
 
-type sbvecMethods interface {
-	set(i uint64, val bool)
-	get(i uint64) uint64
-	rank(i uint64) uint64
-	select1(x uint64) uint64
-	getSize(b bool) uint64
-	build(enableFasterSelect1 bool, enableFasterSelect0 bool)
+// NewVector returns a new succinct bit vector
+func NewVector() (SuccinctBitVector, error) {
+	vec := new(BitVectorData)
+	return vec, nil
 }
 
-func (vec *SBVector) get(i uint64) bool {
-	return (vec.blocks[i/sBlockSize] & (1 << (i % sBlockSize))) != 0
+// Get returns value from bit vector by index.
+func (vec *BitVectorData) Get(i uint64) (bool, error) {
+	if i > vec.size {
+		return false, errors.New("Out of Bounds")
+	}
+	return (vec.blocks[i/sBlockSize] & (1 << (i % sBlockSize))) != 0, nil
 }
 
-func (vec *SBVector) set(i uint64, val bool) {
+//GetBits returns bits from bit vector.
+func (vec *BitVectorData) GetBits(pos uint64, length uint64) (uint64, error) {
+	if pos > vec.size {
+		return 0, errors.New("Out of Bounds")
+	}
+	var blockIdx1 = pos / sBlockSize
+	var blockOffset1 = pos % sBlockSize
+	if (blockOffset1 + length) <= sBlockSize {
+		return mask(vec.blocks[blockIdx1]>>blockOffset1, length), nil
+	}
+	var blockIdx2 = (pos + length - 1) / sBlockSize
+	return mask((vec.blocks[blockIdx1]>>blockOffset1)+(vec.blocks[blockIdx2]<<(sBlockSize-blockOffset1)), length), nil
+}
+
+// Set value to bit vector by index.
+func (vec *BitVectorData) Set(i uint64, val bool) {
 	var blockID uint64
 	var r uint8
 	blockID = i / sBlockSize
@@ -114,9 +149,43 @@ func (vec *SBVector) set(i uint64, val bool) {
 	} else {
 		vec.blocks[blockID] &= ^m
 	}
+	if vec.size <= i {
+		vec.size = i + 1
+	}
 }
 
-func (vec *SBVector) build(enableFasterSelect1 bool, enableFasterSelect0 bool) {
+// PushBack add bit to the bit vector
+func (vec *BitVectorData) PushBack(b bool) {
+	if (vec.size / sBlockSize) >= uint64(len(vec.blocks)) {
+		vec.blocks = append(vec.blocks, uint64(0))
+	}
+	var blockID = vec.size / sBlockSize
+	var r = vec.size % sBlockSize
+	var m = uint64(1) << r
+	if b {
+		vec.blocks[blockID] |= m
+	} else {
+		vec.blocks[blockID] &= ^m
+	}
+	vec.size++
+}
+
+// PushBackBits add bits to the bit vector
+func (vec *BitVectorData) PushBackBits(x uint64, length uint64) {
+	var offset = vec.size % sBlockSize
+	if (vec.size+length-1)/sBlockSize >= uint64(len(vec.blocks)) {
+		vec.blocks = append(vec.blocks, uint64(0))
+	}
+	var blockID = vec.size / sBlockSize
+	vec.blocks[blockID] |= (x << offset)
+	if (offset + length - 1) >= sBlockSize {
+		vec.blocks[blockID+1] |= (x >> (sBlockSize - offset))
+	}
+	vec.size += length
+}
+
+// Build build succinct bit vector indexes.
+func (vec *BitVectorData) Build(enableFasterSelect1 bool, enableFasterSelect0 bool) {
 	var blockNum = uint64(len(vec.blocks))
 	var numOf1s = lBlockSize
 	var numOf0s = lBlockSize
@@ -124,18 +193,18 @@ func (vec *SBVector) build(enableFasterSelect1 bool, enableFasterSelect0 bool) {
 
 	clearSlice(vec.select1Table)
 	clearSlice(vec.select0Table)
-	var tmpRank = make([]rankindex, 1)
+	var tmpRank = make([]RankIndex, 1)
 	copy(tmpRank, vec.ranks)
-	var rankTableSize = (blockNum * sBlockSize) / lBlockSize  + 1
+	var rankTableSize = (blockNum*sBlockSize)/lBlockSize + 1
 	if ((blockNum * sBlockSize) % lBlockSize) != 0 {
 		rankTableSize++
 	}
 
-	vec.ranks = make([]rankindex, rankTableSize)
+	vec.ranks = make([]RankIndex, rankTableSize)
 
 	for i, x := range vec.blocks {
 		var rankID = uint64(i) / blockRate
-		var rank  = &vec.ranks[rankID]
+		var rank = &vec.ranks[rankID]
 		switch i % 8 {
 		case 0:
 			rank.setAbs(vec.numOf1s)
@@ -187,7 +256,7 @@ func (vec *SBVector) build(enableFasterSelect1 bool, enableFasterSelect0 bool) {
 			rank.setRel2(vec.numOf1s - rank.abs())
 			fallthrough
 		case 2:
-			rank.setRel3(2/*vec.numOf1s - rank.abs()*/)
+			rank.setRel3(2 /*vec.numOf1s - rank.abs()*/)
 			fallthrough
 		case 3:
 			rank.setRel4(vec.numOf1s - rank.abs())
@@ -213,7 +282,11 @@ func (vec *SBVector) build(enableFasterSelect1 bool, enableFasterSelect0 bool) {
 	}
 }
 
-func (vec *SBVector) rank(i uint64) uint64 {
+// Rank1 returns number of the bits equal to `1` up to positin `i`
+func (vec *BitVectorData) Rank1(i uint64) (uint64, error) {
+	if i > vec.size {
+		return NotFound, errors.New("Out of Bounds")
+	}
 	var rankID = i / lBlockSize
 	var blockID = i / sBlockSize
 	var r = i % sBlockSize
@@ -238,36 +311,54 @@ func (vec *SBVector) rank(i uint64) uint64 {
 	default:
 	}
 	offset += popcount.Count(vec.blocks[blockID] & ((1 << r) - 1))
-	return offset
+	return offset, nil
 }
 
-func (vec *SBVector) select1(x uint64) uint64 {
-	var vecSize = vec.getSize(true)
+// Rank0 returns number of the bits equal to `0` up to positin `i`
+func (vec *BitVectorData) Rank0(i uint64) (uint64, error) {
+	rank, err := vec.Rank1(i)
+	if err != nil {
+		return rank, err
+	}
+	return i - rank, nil
+}
+
+// Rank returns number of the bits equal to `b` up to position `i`
+func (vec *BitVectorData) Rank(i uint64, b bool) (uint64, error) {
+	if b {
+		return vec.Rank1(i)
+	}
+	return vec.Rank0(i)
+}
+
+// Select1 returns the position of the x-th occurence of 1
+func (vec *BitVectorData) Select1(x uint64) (uint64, error) {
+	var vecSize = vec.NumOfBits(true)
 	if vecSize <= x {
-		return notFound
+		return NotFound, errors.New("Out of Bounds")
 	}
 
-	var begin uint64 = 0
-	var end uint64 = 0
+	var begin uint64
+	var end uint64
 
 	if len(vec.select1Table) == 0 {
 		begin = 0
 		end = uint64(len(vec.ranks))
 	} else {
 		var selectID = x / lBlockSize
-		if x&lBlockSize == 0 {
-			return vec.select1Table[selectID]
+		if x%lBlockSize == 0 {
+			return vec.select1Table[selectID], nil
 		}
 		begin = vec.select1Table[selectID] / lBlockSize
 		end = (vec.select1Table[selectID+1] + lBlockSize - 1) / lBlockSize
 	}
 
 	if (begin + 10) >= end {
-		for x >= vec.ranks[begin + 1].abs() {
+		for x >= vec.ranks[begin+1].abs() {
 			begin++
 		}
 	} else {
-		for  (begin + 1) < end {
+		for (begin + 1) < end {
 			var pivot = (begin + end) / 2
 			if x < vec.ranks[pivot].abs() {
 				end = pivot
@@ -295,29 +386,106 @@ func (vec *SBVector) select1(x uint64) uint64 {
 			x -= rank.rel3()
 		}
 	} else if x < rank.rel6() {
-	    if x < rank.rel5() {
-            blockID += 4;
-            x -= rank.rel4();
-        } else {
-            blockID += 5;
-            x -= rank.rel5();
-        }
-    } else if x < rank.rel7() {
-        blockID += 6;
-        x -= rank.rel6();
-    } else {
-        blockID += 7;
-        x -= rank.rel7();
-    }
-	return select64(vec.blocks[blockID], x, blockID * sBlockSize)
+		if x < rank.rel5() {
+			blockID += 4
+			x -= rank.rel4()
+		} else {
+			blockID += 5
+			x -= rank.rel5()
+		}
+	} else if x < rank.rel7() {
+		blockID += 6
+		x -= rank.rel6()
+	} else {
+		blockID += 7
+		x -= rank.rel7()
+	}
+	return select64(vec.blocks[blockID], x, blockID*sBlockSize), nil
 }
 
-func (vec *SBVector) getSize(b bool) uint64{
+// Select0 returns the position of the x-th occurence of 0
+func (vec *BitVectorData) Select0(x uint64) (uint64, error) {
+	var vecSize = vec.NumOfBits(false)
+	if vecSize <= x {
+		return NotFound, errors.New("Out of Bounds")
+	}
+
+	var begin uint64
+	var end uint64
+
+	if len(vec.select0Table) == 0 {
+		begin = 0
+		end = uint64(len(vec.ranks))
+	} else {
+		var selectID = x / lBlockSize
+		if x%lBlockSize == 0 {
+			return vec.select0Table[selectID], nil
+		}
+		begin = vec.select0Table[selectID] / lBlockSize
+		end = (vec.select0Table[selectID+1] + lBlockSize - 1) / lBlockSize
+	}
+
+	if (begin + 10) >= end {
+		for x >= ((begin+1)*lBlockSize)-vec.ranks[begin+1].abs() {
+			begin++
+		}
+	} else {
+		for (begin + 1) < end {
+			var pivot = (begin + end) / 2
+			if x < (pivot*lBlockSize)-vec.ranks[pivot].abs() {
+				end = pivot
+			} else {
+				begin = pivot
+			}
+		}
+	}
+	var rankID = begin
+	var rank = &vec.ranks[rankID]
+	var rankOffset = (rankID * lBlockSize) - rank.abs()
+	x -= rankOffset
+	var blockID = rankID * blockRate
+	if x < uint64(256)-rank.rel4() {
+		if x < uint64(128)-rank.rel2() {
+			if x >= uint64(64)-rank.rel1() {
+				blockID++
+				x -= uint64(64) - rank.rel1()
+			}
+		} else if x < uint64(192)-rank.rel3() {
+			blockID += 2
+			x -= uint64(128) - rank.rel2()
+		} else {
+			blockID += 3
+			x -= uint64(192) - rank.rel3()
+		}
+	} else if x < uint64(384)-rank.rel6() {
+		if x < uint64(320)-rank.rel5() {
+			blockID += 4
+			x -= uint64(256) - rank.rel4()
+		} else {
+			blockID += 5
+			x -= uint64(320) - rank.rel5()
+		}
+	} else if x < uint64(448)-rank.rel7() {
+		blockID += 6
+		x -= uint64(384) - rank.rel6()
+	} else {
+		blockID += 7
+		x -= uint64(448) - rank.rel7()
+	}
+	return select64(^vec.blocks[blockID], x, blockID*sBlockSize), nil
+}
+
+// Size returns size of bit vector
+func (vec *BitVectorData) Size() uint64 {
+	return vec.size
+}
+
+// NumOfBits returns number of bits that matches with argument in the bit vector.
+func (vec *BitVectorData) NumOfBits(b bool) uint64 {
 	if b {
 		return vec.numOf1s
-	} else {
-		return vec.size - vec.numOf1s
 	}
+	return vec.size - vec.numOf1s
 }
 
 func countTrailingZeros(x uint64) uint8 {
@@ -337,6 +505,10 @@ func select64(block uint64, i uint64, base uint64) uint64 {
 	block >>= tzLen
 	i -= ((counts << 8) >> tzLen) & 0xFF
 	return base + uint64(selectTable[i][block&0xFF])
+}
+
+func mask(x uint64, pos uint64) uint64 {
+	return x & ((uint64(1) << pos) - 1)
 }
 
 func clearSlice(s []uint64) {
