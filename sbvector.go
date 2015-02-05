@@ -5,19 +5,19 @@ Synopsis
 	import (
 		"github.com/hideo55/go-sbvector"
 	)
-	
+
 	func example() {
 		vec, err := sbvector.NewVector()
 		if err != nil {
 			// error handling
 		}
-		
+
 		vec.Set(10, true)
-		
+
 		...
-		
+
 		vec.Build(true, true)
-		
+
 		pos, err := vec.Select1(0)
 		if err != nil {
 			// error handling
@@ -28,6 +28,7 @@ package sbvector
 
 import (
 	"errors"
+
 	"github.com/hideo55/go-popcount"
 )
 
