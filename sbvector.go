@@ -1,4 +1,29 @@
-// Package sbvector is implementation of succinct bit vector for Go.
+/*
+Package sbvector is implementation of succinct bit vector for Go.
+
+Synopsis
+	import (
+		"github.com/hideo55/go-sbvector"
+	)
+	
+	func example() {
+		vec, err := sbvector.NewVector()
+		if err != nil {
+			// error handling
+		}
+		
+		vec.Set(10, true)
+		
+		...
+		
+		vec.Build(true, true)
+		
+		pos, err := vec.Select1(0)
+		if err != nil {
+			// error handling
+		}
+	}
+*/
 package sbvector
 
 import (
@@ -185,7 +210,9 @@ func (vec *BitVectorData) PushBackBits(x uint64, length uint64) {
 	vec.size += length
 }
 
-// Build build succinct bit vector indexes.
+// Build creates indexes for succinct bit vector(rank index, ...).
+// If `enableFasterSelect1` is true, creates index for select1 make faster.
+// If `enableFasterSelect0` is true, creates index for select0 make faster.
 func (vec *BitVectorData) Build(enableFasterSelect1 bool, enableFasterSelect0 bool) {
 	var blockNum = uint64(len(vec.blocks))
 	var numOf1s = lBlockSize
