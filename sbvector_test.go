@@ -128,6 +128,21 @@ func TestHasSelectIndex(t *testing.T) {
 		}
 	}
 
+	size := vec.Size()
+	if size != uint64(1025) {
+		t.Error("Expected", 1025, "got", size)
+	}
+
+	size = vec.NumOfBits(true)
+	if size != uint64(19) {
+		t.Error("Expected", 19, "got", size)
+	}
+
+	size = vec.NumOfBits(false)
+	if size != uint64(1006) {
+		t.Error("Expected", 106, "got", size)
+	}
+
 	for _, v := range rankCases {
 		rank, err := vec.Rank1(v.pos)
 		if err != nil || rank != v.rank {
