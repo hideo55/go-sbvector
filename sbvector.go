@@ -5,7 +5,7 @@ import (
 	"github.com/hideo55/go-popcount"
 )
 
-// BitVectorData holds impormation abount bit vector.
+// BitVectorData holds impormation about bit vector.
 type BitVectorData struct {
 	blocks       []uint64
 	ranks        []RankIndex
