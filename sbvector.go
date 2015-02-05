@@ -1,3 +1,4 @@
+// Package sbvector is implementation of succinct bit vector for Go.
 package sbvector
 
 import (
