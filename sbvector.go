@@ -1,157 +1,517 @@
 package sbvector
 
 import (
-	"testing"
+	"errors"
+	"github.com/hideo55/go-popcount"
 )
 
-type BitTestCase struct {
-	pos uint64
-	bit bool
+// BitVectorData holds impormation abount bit vector.
+type BitVectorData struct {
+	blocks       []uint64
+	ranks        []RankIndex
+	select1Table []uint64
+	select0Table []uint64
+	numOf1s      uint64
+	size         uint64
 }
 
-type RankTestCase struct {
-	pos  uint64
-	rank uint64
+// SuccinctBitVector is interface of succinct bit vector.
+type SuccinctBitVector interface {
+	Set(i uint64, val bool)
+	PushBack(b bool)
+	PushBackBits(x uint64, length uint64)
+	Get(i uint64) (bool, error)
+	GetBits(pos uint64, length uint64) (uint64, error)
+	Rank1(i uint64) (uint64, error)
+	Rank0(i uint64) (uint64, error)
+	Rank(i uint64, b bool) (uint64, error)
+	Select1(x uint64) (uint64, error)
+	Select0(x uint64) (uint64, error)
+	Size() uint64
+	NumOfBits(b bool) uint64
+	Build(enableFasterSelect1 bool, enableFasterSelect0 bool)
 }
 
-type SelectTestCase struct {
-	index uint64
-	pos   uint64
-}
-
-var (
-	bitCases = []BitTestCase{
-		{0, true},
-		{1, true},
-		{63, true},
-		{64, true},
-		{65, true},
-		{255, true},
-		{256, true},
-		{300, false},
-	}
-
-	rankCases = []RankTestCase{
-		{1, 1},
-		{2, 2},
-		{3, 2},
-		{63, 2},
-		{64, 3},
-		{65, 4},
-		{66, 5},
-		{255, 5},
-		{256, 6},
-		{257, 7},
-		{300, 7},
-		{301, 7},
-	}
-
-	select1Cases = []SelectTestCase{
-		{0, 0},
-		{1, 1},
-		{2, 63},
-		{3, 64},
-		{4, 65},
-		{5, 255},
-		{6, 256},
-	}
-
-	select0Cases = []SelectTestCase{
-		{0, 2},
-		{1, 3},
-		{60, 62},
-		{61, 66},
-		{249, 254},
-		{250, 257},
-	}
+const (
+	mask55     uint64 = 0x5555555555555555
+	mask33     uint64 = 0x3333333333333333
+	mask0F     uint64 = 0x0F0F0F0F0F0F0F0F
+	mask01     uint64 = 0x0101010101010101
+	mask80     uint64 = 0x8080808080808080
+	sBlockSize uint64 = 64
+	lBlockSize uint64 = 512
+	blockRate  uint64 = 8
+	// NotFound indicates `value not found`
+	NotFound uint64 = 0xFFFFFFFFFFFFFFFF
 )
 
-func TestHasSelectIndex(t *testing.T) {
-	vec, err := NewVector()
-	if err != nil {
-		t.Error()
-	}
-
-	for _, v := range bitCases {
-		vec.Set(v.pos, v.bit)
-	}
-
-	for _, v := range bitCases {
-		x, err := vec.Get(v.pos)
-		if err != nil || x != v.bit {
-			t.Error("Expected", v.bit, "got", x)
-		}
-	}
-
-	vec.Build(true, true)
-
-	for _, v := range bitCases {
-		x, err := vec.Get(v.pos)
-		if err != nil || x != v.bit {
-			t.Error("Expected", v.bit, "got", x)
-		}
-	}
-
-	for _, v := range rankCases {
-		rank, err := vec.Rank1(v.pos)
-		if err != nil || rank != v.rank {
-			t.Error("Expected", v.rank, "got", rank)
-		}
-	}
-
-	for _, v := range select1Cases {
-		pos, err := vec.Select1(v.index)
-		if err != nil || pos != v.pos {
-			t.Error("Expected", v.pos, "got", pos)
-		}
-	}
-
-	for _, v := range select0Cases {
-		pos, err := vec.Select0(v.index)
-		if err != nil || pos != v.pos {
-			t.Error("Expected", v.pos, "got", pos)
-		}
-	}
-
+var selectTable = [8][256]uint8{
+	[256]uint8{7, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0, 4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0, 5, 0, 1, 0, 2, 0, 1,
+		0, 3, 0, 1, 0, 2, 0, 1, 0, 4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0, 6, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0,
+		2, 0, 1, 0, 4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0, 5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0, 4,
+		0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0, 7, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0, 4, 0, 1, 0, 2, 0,
+		1, 0, 3, 0, 1, 0, 2, 0, 1, 0, 5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0, 4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1,
+		0, 2, 0, 1, 0, 6, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0, 4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+		5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0, 4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0},
+	[256]uint8{7, 7, 7, 1, 7, 2, 2, 1, 7, 3, 3, 1, 3, 2, 2, 1, 7, 4, 4, 1, 4, 2, 2, 1, 4, 3, 3, 1, 3, 2, 2, 1, 7, 5, 5, 1, 5, 2, 2,
+		1, 5, 3, 3, 1, 3, 2, 2, 1, 5, 4, 4, 1, 4, 2, 2, 1, 4, 3, 3, 1, 3, 2, 2, 1, 7, 6, 6, 1, 6, 2, 2, 1, 6, 3, 3, 1,
+		3, 2, 2, 1, 6, 4, 4, 1, 4, 2, 2, 1, 4, 3, 3, 1, 3, 2, 2, 1, 6, 5, 5, 1, 5, 2, 2, 1, 5, 3, 3, 1, 3, 2, 2, 1, 5,
+		4, 4, 1, 4, 2, 2, 1, 4, 3, 3, 1, 3, 2, 2, 1, 7, 7, 7, 1, 7, 2, 2, 1, 7, 3, 3, 1, 3, 2, 2, 1, 7, 4, 4, 1, 4, 2,
+		2, 1, 4, 3, 3, 1, 3, 2, 2, 1, 7, 5, 5, 1, 5, 2, 2, 1, 5, 3, 3, 1, 3, 2, 2, 1, 5, 4, 4, 1, 4, 2, 2, 1, 4, 3, 3,
+		1, 3, 2, 2, 1, 7, 6, 6, 1, 6, 2, 2, 1, 6, 3, 3, 1, 3, 2, 2, 1, 6, 4, 4, 1, 4, 2, 2, 1, 4, 3, 3, 1, 3, 2, 2, 1,
+		6, 5, 5, 1, 5, 2, 2, 1, 5, 3, 3, 1, 3, 2, 2, 1, 5, 4, 4, 1, 4, 2, 2, 1, 4, 3, 3, 1, 3, 2, 2, 1},
+	[256]uint8{7, 7, 7, 7, 7, 7, 7, 2, 7, 7, 7, 3, 7, 3, 3, 2, 7, 7, 7, 4, 7, 4, 4, 2, 7, 4, 4, 3, 4, 3, 3, 2, 7, 7, 7, 5, 7, 5, 5,
+		2, 7, 5, 5, 3, 5, 3, 3, 2, 7, 5, 5, 4, 5, 4, 4, 2, 5, 4, 4, 3, 4, 3, 3, 2, 7, 7, 7, 6, 7, 6, 6, 2, 7, 6, 6, 3,
+		6, 3, 3, 2, 7, 6, 6, 4, 6, 4, 4, 2, 6, 4, 4, 3, 4, 3, 3, 2, 7, 6, 6, 5, 6, 5, 5, 2, 6, 5, 5, 3, 5, 3, 3, 2, 6,
+		5, 5, 4, 5, 4, 4, 2, 5, 4, 4, 3, 4, 3, 3, 2, 7, 7, 7, 7, 7, 7, 7, 2, 7, 7, 7, 3, 7, 3, 3, 2, 7, 7, 7, 4, 7, 4,
+		4, 2, 7, 4, 4, 3, 4, 3, 3, 2, 7, 7, 7, 5, 7, 5, 5, 2, 7, 5, 5, 3, 5, 3, 3, 2, 7, 5, 5, 4, 5, 4, 4, 2, 5, 4, 4,
+		3, 4, 3, 3, 2, 7, 7, 7, 6, 7, 6, 6, 2, 7, 6, 6, 3, 6, 3, 3, 2, 7, 6, 6, 4, 6, 4, 4, 2, 6, 4, 4, 3, 4, 3, 3, 2,
+		7, 6, 6, 5, 6, 5, 5, 2, 6, 5, 5, 3, 5, 3, 3, 2, 6, 5, 5, 4, 5, 4, 4, 2, 5, 4, 4, 3, 4, 3, 3, 2},
+	[256]uint8{7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 3, 7, 7, 7, 7, 7, 7, 7, 4, 7, 7, 7, 4, 7, 4, 4, 3, 7, 7, 7, 7, 7, 7, 7,
+		5, 7, 7, 7, 5, 7, 5, 5, 3, 7, 7, 7, 5, 7, 5, 5, 4, 7, 5, 5, 4, 5, 4, 4, 3, 7, 7, 7, 7, 7, 7, 7, 6, 7, 7, 7, 6,
+		7, 6, 6, 3, 7, 7, 7, 6, 7, 6, 6, 4, 7, 6, 6, 4, 6, 4, 4, 3, 7, 7, 7, 6, 7, 6, 6, 5, 7, 6, 6, 5, 6, 5, 5, 3, 7,
+		6, 6, 5, 6, 5, 5, 4, 6, 5, 5, 4, 5, 4, 4, 3, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 3, 7, 7, 7, 7, 7, 7,
+		7, 4, 7, 7, 7, 4, 7, 4, 4, 3, 7, 7, 7, 7, 7, 7, 7, 5, 7, 7, 7, 5, 7, 5, 5, 3, 7, 7, 7, 5, 7, 5, 5, 4, 7, 5, 5,
+		4, 5, 4, 4, 3, 7, 7, 7, 7, 7, 7, 7, 6, 7, 7, 7, 6, 7, 6, 6, 3, 7, 7, 7, 6, 7, 6, 6, 4, 7, 6, 6, 4, 6, 4, 4, 3,
+		7, 7, 7, 6, 7, 6, 6, 5, 7, 6, 6, 5, 6, 5, 5, 3, 7, 6, 6, 5, 6, 5, 5, 4, 6, 5, 5, 4, 5, 4, 4, 3},
+	[256]uint8{7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 4, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 7, 7, 7, 7, 7, 5, 7, 7, 7, 7, 7, 7, 7, 5, 7, 7, 7, 5, 7, 5, 5, 4, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 6, 7, 7, 7, 7, 7, 7, 7, 6, 7, 7, 7, 6, 7, 6, 6, 4, 7, 7, 7, 7, 7, 7, 7, 6, 7, 7, 7, 6, 7, 6, 6, 5, 7,
+		7, 7, 6, 7, 6, 6, 5, 7, 6, 6, 5, 6, 5, 5, 4, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 7, 7, 7, 7, 7, 7, 4, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 5, 7, 7, 7, 7, 7, 7, 7, 5, 7, 7, 7,
+		5, 7, 5, 5, 4, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 6, 7, 7, 7, 7, 7, 7, 7, 6, 7, 7, 7, 6, 7, 6, 6, 4,
+		7, 7, 7, 7, 7, 7, 7, 6, 7, 7, 7, 6, 7, 6, 6, 5, 7, 7, 7, 6, 7, 6, 6, 5, 7, 6, 6, 5, 6, 5, 5, 4},
+	[256]uint8{7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 5, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 6, 7,
+		7, 7, 7, 7, 7, 7, 6, 7, 7, 7, 6, 7, 6, 6, 5, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 7, 5, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 6,
+		7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 6, 7, 7, 7, 7, 7, 7, 7, 6, 7, 7, 7, 6, 7, 6, 6, 5},
+	[256]uint8{7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 6},
+	[256]uint8{7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+		7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 6},
 }
 
-func TestNoSelectIndex(t *testing.T) {
-	vec, err := NewVector()
+// NewVector returns a new succinct bit vector
+func NewVector() (SuccinctBitVector, error) {
+	vec := new(BitVectorData)
+	return vec, nil
+}
+
+// Get returns value from bit vector by index.
+func (vec *BitVectorData) Get(i uint64) (bool, error) {
+	if i > vec.size {
+		return false, errors.New("Out of Bounds")
+	}
+	return (vec.blocks[i/sBlockSize] & (1 << (i % sBlockSize))) != 0, nil
+}
+
+//GetBits returns bits from bit vector.
+func (vec *BitVectorData) GetBits(pos uint64, length uint64) (uint64, error) {
+	if pos > vec.size {
+		return 0, errors.New("Out of Bounds")
+	}
+	var blockIdx1 = pos / sBlockSize
+	var blockOffset1 = pos % sBlockSize
+	if (blockOffset1 + length) <= sBlockSize {
+		return mask(vec.blocks[blockIdx1]>>blockOffset1, length), nil
+	}
+	var blockIdx2 = (pos + length - 1) / sBlockSize
+	return mask((vec.blocks[blockIdx1]>>blockOffset1)+(vec.blocks[blockIdx2]<<(sBlockSize-blockOffset1)), length), nil
+}
+
+// Set value to bit vector by index.
+func (vec *BitVectorData) Set(i uint64, val bool) {
+	var blockID uint64
+	var r uint8
+	blockID = i / sBlockSize
+	r = uint8(i % sBlockSize)
+	if uint64(len(vec.blocks)) <= blockID {
+		newSlice := make([]uint64, (blockID - uint64(len(vec.blocks)) + 1))
+		vec.blocks = append(vec.blocks, newSlice...)
+	}
+	var m uint64
+	m = 0x1 << r
+	if val {
+		vec.blocks[blockID] |= m
+	} else {
+		vec.blocks[blockID] &= ^m
+	}
+	if vec.size <= i {
+		vec.size = i + 1
+	}
+}
+
+// PushBack add bit to the bit vector
+func (vec *BitVectorData) PushBack(b bool) {
+	if (vec.size / sBlockSize) >= uint64(len(vec.blocks)) {
+		vec.blocks = append(vec.blocks, uint64(0))
+	}
+	var blockID = vec.size / sBlockSize
+	var r = vec.size % sBlockSize
+	var m = uint64(1) << r
+	if b {
+		vec.blocks[blockID] |= m
+	} else {
+		vec.blocks[blockID] &= ^m
+	}
+	vec.size++
+}
+
+// PushBackBits add bits to the bit vector
+func (vec *BitVectorData) PushBackBits(x uint64, length uint64) {
+	var offset = vec.size % sBlockSize
+	if (vec.size+length-1)/sBlockSize >= uint64(len(vec.blocks)) {
+		vec.blocks = append(vec.blocks, uint64(0))
+	}
+	var blockID = vec.size / sBlockSize
+	vec.blocks[blockID] |= (x << offset)
+	if (offset + length - 1) >= sBlockSize {
+		vec.blocks[blockID+1] |= (x >> (sBlockSize - offset))
+	}
+	vec.size += length
+}
+
+// Build build succinct bit vector indexes.
+func (vec *BitVectorData) Build(enableFasterSelect1 bool, enableFasterSelect0 bool) {
+	var blockNum = uint64(len(vec.blocks))
+	var numOf1s = lBlockSize
+	var numOf0s = lBlockSize
+	vec.numOf1s = 0
+
+	clearSlice(vec.select1Table)
+	clearSlice(vec.select0Table)
+	var tmpRank = make([]RankIndex, 1)
+	copy(tmpRank, vec.ranks)
+	var rankTableSize = (blockNum*sBlockSize)/lBlockSize + 1
+	if ((blockNum * sBlockSize) % lBlockSize) != 0 {
+		rankTableSize++
+	}
+
+	vec.ranks = make([]RankIndex, rankTableSize)
+
+	for i, x := range vec.blocks {
+		var rankID = uint64(i) / blockRate
+		var rank = &vec.ranks[rankID]
+		switch i % 8 {
+		case 0:
+			rank.setAbs(vec.numOf1s)
+		case 1:
+			rank.setRel1(vec.numOf1s - rank.abs())
+		case 2:
+			rank.setRel2(vec.numOf1s - rank.abs())
+		case 3:
+			rank.setRel3(vec.numOf1s - rank.abs())
+		case 4:
+			rank.setRel4(vec.numOf1s - rank.abs())
+		case 5:
+			rank.setRel5(vec.numOf1s - rank.abs())
+		case 6:
+			rank.setRel6(vec.numOf1s - rank.abs())
+		case 7:
+			rank.setRel7(vec.numOf1s - rank.abs())
+		}
+
+		var count1s = popcount.Count(x)
+		if enableFasterSelect1 && (numOf1s+count1s > lBlockSize) {
+			var diff = lBlockSize - numOf1s
+			var pos = select64(x, diff, 0)
+			vec.select1Table = append(vec.select1Table, uint64(i)*sBlockSize+pos)
+			numOf1s -= lBlockSize
+		}
+
+		var count0s = sBlockSize - count1s
+		if enableFasterSelect0 && (numOf0s+count0s > lBlockSize) {
+			var diff = lBlockSize - numOf0s
+			var pos = select64(^x, diff, 0)
+			vec.select0Table = append(vec.select0Table, uint64(i)*sBlockSize+pos)
+			numOf0s -= lBlockSize
+		}
+
+		numOf1s += count1s
+		numOf0s += count0s
+		vec.numOf1s += count1s
+	}
+
+	if (blockNum % blockRate) != 0 {
+		var rankID = (blockNum - 1) / blockRate
+		var rank = &vec.ranks[rankID]
+		switch (blockNum - 1) % blockRate {
+		case 0:
+			rank.setRel1(vec.numOf1s - rank.abs())
+			fallthrough
+		case 1:
+			rank.setRel2(vec.numOf1s - rank.abs())
+			fallthrough
+		case 2:
+			rank.setRel3(2 /*vec.numOf1s - rank.abs()*/)
+			fallthrough
+		case 3:
+			rank.setRel4(vec.numOf1s - rank.abs())
+			fallthrough
+		case 4:
+			rank.setRel5(vec.numOf1s - rank.abs())
+			fallthrough
+		case 5:
+			rank.setRel6(vec.numOf1s - rank.abs())
+			fallthrough
+		case 6:
+			rank.setRel7(vec.numOf1s - rank.abs())
+		}
+	}
+
+	vec.ranks[len(vec.ranks)-1].setAbs(vec.numOf1s)
+
+	if enableFasterSelect1 {
+		vec.select1Table = append(vec.select1Table, vec.size)
+	}
+	if enableFasterSelect0 {
+		vec.select0Table = append(vec.select0Table, vec.size)
+	}
+}
+
+// Rank1 returns number of the bits equal to `1` up to positin `i`
+func (vec *BitVectorData) Rank1(i uint64) (uint64, error) {
+	if i > vec.size {
+		return NotFound, errors.New("Out of Bounds")
+	}
+	var rankID = i / lBlockSize
+	var blockID = i / sBlockSize
+	var r = i % sBlockSize
+
+	var rank = vec.ranks[rankID]
+	var offset = rank.abs()
+	switch blockID % blockRate {
+	case 1:
+		offset += rank.rel1()
+	case 2:
+		offset += rank.rel2()
+	case 3:
+		offset += rank.rel3()
+	case 4:
+		offset += rank.rel4()
+	case 5:
+		offset += rank.rel5()
+	case 6:
+		offset += rank.rel6()
+	case 7:
+		offset += rank.rel7()
+	default:
+	}
+	offset += popcount.Count(vec.blocks[blockID] & ((1 << r) - 1))
+	return offset, nil
+}
+
+// Rank0 returns number of the bits equal to `0` up to positin `i`
+func (vec *BitVectorData) Rank0(i uint64) (uint64, error) {
+	rank, err := vec.Rank1(i)
 	if err != nil {
-		t.Error()
+		return rank, err
+	}
+	return i - rank, nil
+}
+
+// Rank returns number of the bits equal to `b` up to position `i`
+func (vec *BitVectorData) Rank(i uint64, b bool) (uint64, error) {
+	if b {
+		return vec.Rank1(i)
+	}
+	return vec.Rank0(i)
+}
+
+// Select1 returns the position of the x-th occurence of 1
+func (vec *BitVectorData) Select1(x uint64) (uint64, error) {
+	var vecSize = vec.NumOfBits(true)
+	if vecSize <= x {
+		return NotFound, errors.New("Out of Bounds")
 	}
 
-	for _, v := range bitCases {
-		vec.Set(v.pos, v.bit)
+	var begin uint64
+	var end uint64
+
+	if len(vec.select1Table) == 0 {
+		begin = 0
+		end = uint64(len(vec.ranks))
+	} else {
+		var selectID = x / lBlockSize
+		if x%lBlockSize == 0 {
+			return vec.select1Table[selectID], nil
+		}
+		begin = vec.select1Table[selectID] / lBlockSize
+		end = (vec.select1Table[selectID+1] + lBlockSize - 1) / lBlockSize
 	}
 
-	vec.Build(false, false)
-
-	for _, v := range bitCases {
-		x, err := vec.Get(v.pos)
-		if err != nil || x != v.bit {
-			t.Error("Expected", v.bit, "got", x)
+	if (begin + 10) >= end {
+		for x >= vec.ranks[begin+1].abs() {
+			begin++
+		}
+	} else {
+		for (begin + 1) < end {
+			var pivot = (begin + end) / 2
+			if x < vec.ranks[pivot].abs() {
+				end = pivot
+			} else {
+				begin = pivot
+			}
 		}
 	}
-
-	for _, v := range rankCases {
-		rank, err := vec.Rank1(v.pos)
-		if err != nil || rank != v.rank {
-			t.Error("Expected", v.rank, "got", rank)
+	var rankID = begin
+	var rank = &vec.ranks[rankID]
+	var rankOffset = rank.abs()
+	x -= rankOffset
+	var blockID = rankID * blockRate
+	if x < rank.rel4() {
+		if x < rank.rel2() {
+			if x >= rank.rel1() {
+				blockID++
+				x -= rank.rel1()
+			}
+		} else if x < rank.rel3() {
+			blockID += 2
+			x -= rank.rel2()
+		} else {
+			blockID += 3
+			x -= rank.rel3()
 		}
+	} else if x < rank.rel6() {
+		if x < rank.rel5() {
+			blockID += 4
+			x -= rank.rel4()
+		} else {
+			blockID += 5
+			x -= rank.rel5()
+		}
+	} else if x < rank.rel7() {
+		blockID += 6
+		x -= rank.rel6()
+	} else {
+		blockID += 7
+		x -= rank.rel7()
+	}
+	return select64(vec.blocks[blockID], x, blockID*sBlockSize), nil
+}
+
+// Select0 returns the position of the x-th occurence of 0
+func (vec *BitVectorData) Select0(x uint64) (uint64, error) {
+	var vecSize = vec.NumOfBits(false)
+	if vecSize <= x {
+		return NotFound, errors.New("Out of Bounds")
 	}
 
-	for _, v := range select1Cases {
-		pos, err := vec.Select1(v.index)
-		if err != nil || pos != v.pos {
-			t.Error("Expected", v.pos, "got", pos)
+	var begin uint64
+	var end uint64
+
+	if len(vec.select0Table) == 0 {
+		begin = 0
+		end = uint64(len(vec.ranks))
+	} else {
+		var selectID = x / lBlockSize
+		if x%lBlockSize == 0 {
+			return vec.select0Table[selectID], nil
 		}
+		begin = vec.select0Table[selectID] / lBlockSize
+		end = (vec.select0Table[selectID+1] + lBlockSize - 1) / lBlockSize
 	}
 
-	for _, v := range select0Cases {
-		pos, err := vec.Select0(v.index)
-		if err != nil || pos != v.pos {
-			t.Error("Expected", v.pos, "got", pos)
+	if (begin + 10) >= end {
+		for x >= ((begin+1)*lBlockSize)-vec.ranks[begin+1].abs() {
+			begin++
+		}
+	} else {
+		for (begin + 1) < end {
+			var pivot = (begin + end) / 2
+			if x < (pivot*lBlockSize)-vec.ranks[pivot].abs() {
+				end = pivot
+			} else {
+				begin = pivot
+			}
 		}
 	}
+	var rankID = begin
+	var rank = &vec.ranks[rankID]
+	var rankOffset = (rankID * lBlockSize) - rank.abs()
+	x -= rankOffset
+	var blockID = rankID * blockRate
+	if x < uint64(256)-rank.rel4() {
+		if x < uint64(128)-rank.rel2() {
+			if x >= uint64(64)-rank.rel1() {
+				blockID++
+				x -= uint64(64) - rank.rel1()
+			}
+		} else if x < uint64(192)-rank.rel3() {
+			blockID += 2
+			x -= uint64(128) - rank.rel2()
+		} else {
+			blockID += 3
+			x -= uint64(192) - rank.rel3()
+		}
+	} else if x < uint64(384)-rank.rel6() {
+		if x < uint64(320)-rank.rel5() {
+			blockID += 4
+			x -= uint64(256) - rank.rel4()
+		} else {
+			blockID += 5
+			x -= uint64(320) - rank.rel5()
+		}
+	} else if x < uint64(448)-rank.rel7() {
+		blockID += 6
+		x -= uint64(384) - rank.rel6()
+	} else {
+		blockID += 7
+		x -= uint64(448) - rank.rel7()
+	}
+	return select64(^vec.blocks[blockID], x, blockID*sBlockSize), nil
+}
+
+// Size returns size of bit vector
+func (vec *BitVectorData) Size() uint64 {
+	return vec.size
+}
+
+// NumOfBits returns number of bits that matches with argument in the bit vector.
+func (vec *BitVectorData) NumOfBits(b bool) uint64 {
+	if b {
+		return vec.numOf1s
+	}
+	return vec.size - vec.numOf1s
+}
+
+func countTrailingZeros(x uint64) uint8 {
+	return uint8(popcount.Count((x & (-x)) - 1))
+}
+
+func select64(block uint64, i uint64, base uint64) uint64 {
+	var counts uint64
+	counts = block - ((block >> 1) & mask55)
+	counts = (counts & mask33) + ((counts >> 2) & mask33)
+	counts = (counts + (counts >> 4)) & mask0F
+	counts *= mask01
+
+	var x = (counts | mask80) - ((i + 1) * mask01)
+	var tzLen = countTrailingZeros((x & mask80) >> 7)
+	base += uint64(tzLen)
+	block >>= tzLen
+	i -= ((counts << 8) >> tzLen) & 0xFF
+	return base + uint64(selectTable[i][block&0xFF])
+}
+
+func mask(x uint64, pos uint64) uint64 {
+	return x & ((uint64(1) << pos) - 1)
+}
+
+func clearSlice(s []uint64) {
+	var c = make([]uint64, 0)
+	copy(c, s)
 }
