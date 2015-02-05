@@ -53,6 +53,7 @@ type SuccinctBitVector interface {
 	Rank(i uint64, b bool) (uint64, error)
 	Select1(x uint64) (uint64, error)
 	Select0(x uint64) (uint64, error)
+	Select(x uint64, b bool) (uint64, error)
 	Size() uint64
 	NumOfBits(b bool) uint64
 	Build(enableFasterSelect1 bool, enableFasterSelect0 bool)
@@ -501,6 +502,14 @@ func (vec *BitVectorData) Select0(x uint64) (uint64, error) {
 		x -= uint64(448) - rank.rel7()
 	}
 	return select64(^vec.blocks[blockID], x, blockID*sBlockSize), nil
+}
+
+// Select returns the position of the x-th occurrence of `b`
+func (vec *BitVectorData) Select(x uint64, b bool) (uint64, error) {
+	if b {
+		return vec.Select1(x)
+	}
+	return vec.Select0(x)
 }
 
 // Size returns size of bit vector
