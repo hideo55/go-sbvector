@@ -206,3 +206,36 @@ func TestNoSelectIndex(t *testing.T) {
 		}
 	}
 }
+
+func TestOutOfRange(t *testing.T) {
+	vec, err := NewVector()
+	if err != nil {
+		t.Error()
+	}
+
+	for _, v := range bitCases {
+		vec.Set(v.pos, v.bit)
+	}
+
+	vec.Build(true, true)
+
+	rank, err := vec.Rank(1026, true)
+	if err == nil || rank != NotFound {
+		t.Error()
+	}
+
+	rank, err = vec.Rank(1026, false)
+	if err == nil || rank != NotFound {
+		t.Error()
+	}
+
+	pos, err := vec.Select(19, true)
+	if err == nil || pos != NotFound {
+		t.Error()
+	}
+
+	pos, err = vec.Select(1006, false)
+	if err == nil || pos != NotFound {
+		t.Error()
+	}
+}
