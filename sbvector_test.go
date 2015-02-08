@@ -252,7 +252,7 @@ func TestOutOfRange(t *testing.T) {
 	}
 }
 
-func TestPushBack(t *testing.T){
+func TestPushBack(t *testing.T) {
 	vec, err := NewVector()
 	if err != nil {
 		t.Error()
@@ -265,9 +265,43 @@ func TestPushBack(t *testing.T){
 
 	vec.Build(false, false)
 
-	pos, err := vec.Select1(2);
+	pos, err := vec.Select1(2)
 	if err != nil || pos != 3 {
 		t.Error("Expected", 3, "got", pos)
 	}
 }
 
+func TestMultiBits(t *testing.T) {
+	vec, err := NewVector()
+	if err != nil {
+		t.Error()
+	}
+	vec.PushBackBits(0x00FFFFFFFFFFFFFF, 64)
+	vec.PushBackBits(0xFF55, 8)
+	vec.Build(true, true)
+
+	size := vec.Size()
+	if size != 72 {
+		t.Error()
+	}
+
+	x, err := vec.GetBits(72, 1)
+	if err == nil {
+		t.Error()
+	}
+
+	x, err = vec.GetBits(0, 64)
+	if err != nil || x !=  0x00FFFFFFFFFFFFFF {
+		t.Error("Expected", 0x00FFFFFFFFFFFFFF, "got", x)
+	}
+
+	x, err = vec.GetBits(8, 64)
+	if err !=nil || x != 0x5500FFFFFFFFFFFF {
+		t.Error()
+	}
+
+	pos, err := vec.Select1(60)
+	if err != nil || pos != 72 {
+		t.Error()
+	}
+}

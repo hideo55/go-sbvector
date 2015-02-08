@@ -148,8 +148,8 @@ func (vec *BitVectorData) Get(i uint64) (bool, error) {
 
 //GetBits returns bits from bit vector.
 func (vec *BitVectorData) GetBits(pos uint64, length uint64) (uint64, error) {
-	if pos > vec.size {
-		return 0, errors.New("Out of Bounds")
+	if (pos + length) > vec.size {
+		return NotFound, errors.New("Out of Bounds")
 	}
 	var blockIdx1 = pos / sBlockSize
 	var blockOffset1 = pos % sBlockSize
