@@ -96,7 +96,19 @@ var (
 		{1, 3},
 		{60, 62},
 		{61, 66},
+		{121, 126},
 		{122, 129},
+		{183, 190},
+		{184, 193},
+		{245, 254},
+		{246, 257},
+		{307, 318},
+		{308, 321},
+		{369, 382},
+		{370, 385},
+		{431, 446},
+		{432, 449},
+		{493, 510},
 		{494, 513},
 		{1005, 1024},
 	}
@@ -239,3 +251,23 @@ func TestOutOfRange(t *testing.T) {
 		t.Error()
 	}
 }
+
+func TestPushBack(t *testing.T){
+	vec, err := NewVector()
+	if err != nil {
+		t.Error()
+	}
+
+	vec.PushBack(true)
+	vec.PushBack(false)
+	vec.PushBack(true)
+	vec.PushBack(true)
+
+	vec.Build(false, false)
+
+	pos, err := vec.Select1(2);
+	if err != nil || pos != 3 {
+		t.Error("Expected", 3, "got", pos)
+	}
+}
+
