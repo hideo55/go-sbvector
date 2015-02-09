@@ -231,6 +231,11 @@ func TestOutOfRange(t *testing.T) {
 
 	vec.Build(true, true)
 
+	bit, err := vec.Get(1026)
+	if err == nil || bit == true {
+		t.Error()
+	}
+
 	rank, err := vec.Rank(1026, true)
 	if err == nil || rank != NotFound {
 		t.Error()
@@ -276,32 +281,32 @@ func TestMultiBits(t *testing.T) {
 	if err != nil {
 		t.Error()
 	}
-	vec.PushBackBits(0x00FFFFFFFFFFFFFF, 64)
+	vec.PushBackBits(0x00FFFFFFFFFFFFFF, 63)
 	vec.PushBackBits(0xFF55, 8)
 	vec.Build(true, true)
 
 	size := vec.Size()
-	if size != 72 {
+	if size != 71 {
 		t.Error()
 	}
 
-	x, err := vec.GetBits(72, 1)
+	x, err := vec.GetBits(71, 1)
 	if err == nil {
 		t.Error()
 	}
 
 	x, err = vec.GetBits(0, 64)
-	if err != nil || x !=  0x00FFFFFFFFFFFFFF {
-		t.Error("Expected", 0x00FFFFFFFFFFFFFF, "got", x)
+	if err != nil || x != uint64(0x80ffffffffffffff) {
+		t.Error("Expected", uint64(0x80FFFFFFFFFFFFFF), "got", x)
 	}
 
-	x, err = vec.GetBits(8, 64)
-	if err !=nil || x != 0x5500FFFFFFFFFFFF {
-		t.Error()
+	x, err = vec.GetBits(8, 63)
+	if err != nil || x != uint64(0x2A80FFFFFFFFFFFF) {
+		t.Errorf("%x", x)
 	}
 
 	pos, err := vec.Select1(60)
-	if err != nil || pos != 72 {
+	if err != nil || pos != 71 {
 		t.Error()
 	}
 }
