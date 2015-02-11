@@ -168,7 +168,7 @@ func TestHasSelectIndex(t *testing.T) {
 
 	for _, v := range rankCases {
 		rank, err := vec.Rank0(v.pos)
-		if err != nil || rank != (v.pos - v.rank) {
+		if err != nil || rank != (v.pos-v.rank) {
 			t.Error("Expected", (v.pos - v.rank), "got", rank)
 		}
 	}
@@ -319,5 +319,20 @@ func TestMultiBits(t *testing.T) {
 	pos, err := vec.Select1(60)
 	if err != nil || pos != 71 {
 		t.Error()
+	}
+}
+
+func TestDenseVector(t *testing.T) {
+	vec, err := NewVector()
+	if err != nil {
+		t.Error()
+	}
+	for i := uint64(0); i < uint64(0xFFF); i++ {
+		vec.PushBack(true)
+	}
+	vec.Build(false, false)
+	pos, err := vec.Select1(513)
+	if err != nil || pos != 513 {
+		t.Error(pos)
 	}
 }

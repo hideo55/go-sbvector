@@ -382,7 +382,6 @@ func (vec *BitVectorData) Select1(x uint64) (uint64, error) {
 		begin = vec.select1Table[selectID] / lBlockSize
 		end = (vec.select1Table[selectID+1] + lBlockSize - 1) / lBlockSize
 	}
-
 	if (begin + 10) >= end {
 		for x >= vec.ranks[begin+1].abs() {
 			begin++
