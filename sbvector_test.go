@@ -41,6 +41,7 @@ var (
 		{511, true},
 		{512, true},
 		{1024, false},
+		{6000, true},
 	}
 
 	rankCases = []RankTestCase{
@@ -67,6 +68,7 @@ var (
 		{512, 18},
 		{513, 19},
 		{1024, 19},
+		{6001, 20},
 	}
 
 	select1Cases = []SelectTestCase{
@@ -89,6 +91,7 @@ var (
 		{16, 448},
 		{17, 511},
 		{18, 512},
+		{19, 6000},
 	}
 
 	select0Cases = []SelectTestCase{
@@ -111,6 +114,7 @@ var (
 		{493, 510},
 		{494, 513},
 		{1005, 1024},
+		{5980, 5998},
 	}
 )
 
@@ -141,24 +145,31 @@ func TestHasSelectIndex(t *testing.T) {
 	}
 
 	size := vec.Size()
-	if size != uint64(1025) {
-		t.Error("Expected", 1025, "got", size)
+	if size != uint64(6001) {
+		t.Error("Expected", 6031, "got", size)
 	}
 
 	size = vec.NumOfBits(true)
-	if size != uint64(19) {
-		t.Error("Expected", 19, "got", size)
+	if size != uint64(20) {
+		t.Error("Expected", 20, "got", size)
 	}
 
 	size = vec.NumOfBits(false)
-	if size != uint64(1006) {
-		t.Error("Expected", 106, "got", size)
+	if size != uint64(5981) {
+		t.Error("Expected", 5981, "got", size)
 	}
 
 	for _, v := range rankCases {
 		rank, err := vec.Rank1(v.pos)
 		if err != nil || rank != v.rank {
 			t.Error("Expected", v.rank, "got", rank)
+		}
+	}
+
+	for _, v := range rankCases {
+		rank, err := vec.Rank0(v.pos)
+		if err != nil || rank != (v.pos - v.rank) {
+			t.Error("Expected", (v.pos - v.rank), "got", rank)
 		}
 	}
 
@@ -231,27 +242,27 @@ func TestOutOfRange(t *testing.T) {
 
 	vec.Build(true, true)
 
-	bit, err := vec.Get(1026)
+	bit, err := vec.Get(6002)
 	if err == nil || bit == true {
 		t.Error()
 	}
 
-	rank, err := vec.Rank(1026, true)
+	rank, err := vec.Rank(6002, true)
 	if err == nil || rank != NotFound {
 		t.Error()
 	}
 
-	rank, err = vec.Rank(1026, false)
+	rank, err = vec.Rank(6002, false)
 	if err == nil || rank != NotFound {
 		t.Error()
 	}
 
-	pos, err := vec.Select(19, true)
+	pos, err := vec.Select(20, true)
 	if err == nil || pos != NotFound {
 		t.Error()
 	}
 
-	pos, err = vec.Select(1006, false)
+	pos, err = vec.Select(5981, false)
 	if err == nil || pos != NotFound {
 		t.Error()
 	}
