@@ -27,7 +27,11 @@ Synopsis
 package sbvector
 
 import (
+	"bytes"
+	"encoding"
+	"encoding/binary"
 	"errors"
+	"unsafe"
 
 	"github.com/hideo55/go-popcount"
 )
@@ -35,7 +39,7 @@ import (
 // BitVectorData holds impormation about bit vector.
 type BitVectorData struct {
 	blocks       []uint64
-	ranks        []RankIndex
+	ranks        []rankIndex
 	select1Table []uint64
 	select0Table []uint64
 	numOf1s      uint64
@@ -44,6 +48,8 @@ type BitVectorData struct {
 
 // SuccinctBitVector is interface of succinct bit vector.
 type SuccinctBitVector interface {
+	encoding.BinaryMarshaler
+	encoding.BinaryUnmarshaler
 	Set(i uint64, val bool)
 	PushBack(b bool)
 	PushBackBits(x uint64, length uint64)
@@ -61,14 +67,15 @@ type SuccinctBitVector interface {
 }
 
 const (
-	mask55     uint64 = 0x5555555555555555
-	mask33     uint64 = 0x3333333333333333
-	mask0F     uint64 = 0x0F0F0F0F0F0F0F0F
-	mask01     uint64 = 0x0101010101010101
-	mask80     uint64 = 0x8080808080808080
-	sBlockSize uint64 = 64
-	lBlockSize uint64 = 512
-	blockRate  uint64 = 8
+	mask55      uint64 = 0x5555555555555555
+	mask33      uint64 = 0x3333333333333333
+	mask0F      uint64 = 0x0F0F0F0F0F0F0F0F
+	mask01      uint64 = 0x0101010101010101
+	mask80      uint64 = 0x8080808080808080
+	sBlockSize  uint64 = 64
+	lBlockSize  uint64 = 512
+	blockRate   uint64 = 8
+	minimumSize uint64 = 40
 	// NotFound indicates `value not found`
 	NotFound uint64 = 0xFFFFFFFFFFFFFFFF
 )
@@ -223,14 +230,14 @@ func (vec *BitVectorData) Build(enableFasterSelect1 bool, enableFasterSelect0 bo
 
 	clearSlice(vec.select1Table)
 	clearSlice(vec.select0Table)
-	var tmpRank = make([]RankIndex, 1)
+	var tmpRank = make([]rankIndex, 1)
 	copy(tmpRank, vec.ranks)
 	var rankTableSize = (blockNum*sBlockSize)/lBlockSize + 1
 	if ((blockNum * sBlockSize) % lBlockSize) != 0 {
 		rankTableSize++
 	}
 
-	vec.ranks = make([]RankIndex, rankTableSize)
+	vec.ranks = make([]rankIndex, rankTableSize)
 
 	for i, x := range vec.blocks {
 		var rankID = uint64(i) / blockRate
@@ -523,6 +530,123 @@ func (vec *BitVectorData) NumOfBits(b bool) uint64 {
 		return vec.numOf1s
 	}
 	return vec.size - vec.numOf1s
+}
+
+// MarshalBinary implements the encoding.BinaryMarshaler interface.
+func (vec *BitVectorData) MarshalBinary() ([]byte, error) {
+	buffer := new(bytes.Buffer)
+
+	blockNum := uint32(len(vec.blocks))
+	rankIndexSize := uint32(len(vec.ranks))
+	select1TableSize := uint32(len(vec.select1Table))
+	select0TableSize := uint32(len(vec.select0Table))
+
+	var tmpUint32 uint32
+	var tmpRankIndex rankIndex
+	sizeOfUint32 := uint64(unsafe.Sizeof(tmpUint32))
+	sizeOfUint64 := uint64(unsafe.Sizeof(vec.size))
+	sizeOfRI := uint64(unsafe.Sizeof(tmpRankIndex))
+
+	var serializedSize uint64
+	serializedSize = uint64(blockNum) * sizeOfUint64
+	serializedSize += uint64(rankIndexSize) * sizeOfRI
+	serializedSize += uint64(select1TableSize) * sizeOfUint64
+	serializedSize += uint64(select0TableSize) * sizeOfUint64
+	serializedSize += sizeOfUint64 * 3 /* Sizeof(serializedSize) + Sizeof(vec.size) + Sizeof(vec.numOf1s) */
+	serializedSize += sizeOfUint32 * 4 /* Sizeof(blockNum) + Sizeof(rankIndexSize) + Sizeof(select1TableSize) + Sizeof(select0TableSize) */
+	binary.Write(buffer, binary.LittleEndian, &serializedSize)
+	binary.Write(buffer, binary.LittleEndian, &vec.size)
+	binary.Write(buffer, binary.LittleEndian, &vec.numOf1s)
+
+	binary.Write(buffer, binary.LittleEndian, &blockNum)
+	for _, block := range vec.blocks {
+		binary.Write(buffer, binary.LittleEndian, &block)
+	}
+
+	binary.Write(buffer, binary.LittleEndian, &rankIndexSize)
+	for _, ri := range vec.ranks {
+		buf, err := ri.MarshalBinary()
+		if err != nil {
+			return make([]byte, 0), err
+		}
+		binary.Write(buffer, binary.LittleEndian, buf)
+	}
+	binary.Write(buffer, binary.LittleEndian, &select1TableSize)
+	for _, s1 := range vec.select1Table {
+		binary.Write(buffer, binary.LittleEndian, &s1)
+	}
+	binary.Write(buffer, binary.LittleEndian, &select0TableSize)
+	for _, s0 := range vec.select0Table {
+		binary.Write(buffer, binary.LittleEndian, &s0)
+	}
+	return buffer.Bytes(), nil
+}
+
+// UnmarshalBinary implements the encoding.BinaryUnmarshaler interface.
+func (vec *BitVectorData) UnmarshalBinary(data []byte) error {
+	buf := data
+	if uint64(len(data)) < minimumSize {
+		return errors.New("no data")
+	}
+	var offset int
+	offset = 0
+	buf = data[offset : offset+8]
+	offset += 8
+	dataSize := binary.LittleEndian.Uint64(buf)
+	if uint64(len(data)) != dataSize {
+		return errors.New("Invalid Size")
+	}
+
+	buf = data[offset : offset+8]
+	offset += 8
+	vec.size = binary.LittleEndian.Uint64(buf)
+
+	buf = data[offset : offset+8]
+	offset += 8
+	vec.numOf1s = binary.LittleEndian.Uint64(buf)
+
+	buf = data[offset : offset+4]
+	offset += 4
+	blockNum := binary.LittleEndian.Uint32(buf)
+	vec.blocks = make([]uint64, blockNum)
+	for i := uint32(0); i < blockNum; i++ {
+		buf = data[offset : offset+8]
+		offset += 8
+		vec.blocks[i] = binary.LittleEndian.Uint64(buf)
+	}
+
+	buf = data[offset : offset+4]
+	offset += 4
+	rankIndexSize := binary.LittleEndian.Uint32(buf)
+	vec.ranks = make([]rankIndex, rankIndexSize)
+	sizeOfRI := unsafe.Sizeof(vec.ranks[0])
+	for i := uint32(0); i < rankIndexSize; i++ {
+		buf = data[offset : offset+int(sizeOfRI)]
+		offset += int(sizeOfRI)
+		vec.ranks[i].UnmarshalBinary(buf)
+	}
+
+	buf = data[offset : offset+4]
+	offset += 4
+	select1TableSize := binary.LittleEndian.Uint32(buf)
+	vec.select1Table = make([]uint64, select1TableSize)
+	for i := uint32(0); i < select1TableSize; i++ {
+		buf = data[offset : offset+8]
+		offset += 8
+		vec.select1Table[i] = binary.LittleEndian.Uint64(buf)
+	}
+
+	buf = data[offset : offset+4]
+	offset += 4
+	select0TableSize := binary.LittleEndian.Uint32(buf)
+	vec.select0Table = make([]uint64, select0TableSize)
+	for i := uint32(0); i < select0TableSize; i++ {
+		buf = data[offset : offset+8]
+		offset += 8
+		vec.select0Table[i] = binary.LittleEndian.Uint64(buf)
+	}
+
+	return nil
 }
 
 func countTrailingZeros(x uint64) uint8 {

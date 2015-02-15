@@ -146,7 +146,7 @@ func TestHasSelectIndex(t *testing.T) {
 
 	size := vec.Size()
 	if size != uint64(6001) {
-		t.Error("Expected", 6031, "got", size)
+		t.Error("Expected", 6001, "got", size)
 	}
 
 	size = vec.NumOfBits(true)
@@ -335,4 +335,78 @@ func TestDenseVector(t *testing.T) {
 	if err != nil || pos != 513 {
 		t.Error(pos)
 	}
+}
+
+func TestMarshal(t *testing.T) {
+	vec, err := NewVector()
+	if err != nil {
+		t.Error()
+	}
+
+	for _, v := range bitCases {
+		vec.Set(v.pos, v.bit)
+	}
+
+	vec.Build(true, true)
+
+	buffer, err := vec.MarshalBinary()
+	if err != nil || len(buffer) == 0 {
+		t.Error()
+	}
+
+	vec2, err := NewVector()
+	err = vec2.UnmarshalBinary(buffer)
+	if err != nil {
+		t.Error(err)
+	}
+	for _, v := range bitCases {
+		x, err := vec2.Get(v.pos)
+		if err != nil || x != v.bit {
+			t.Error("Expected", v.bit, "got", x)
+		}
+	}
+
+	size := vec2.Size()
+	if size != uint64(6001) {
+		t.Error("Expected", 6001, "got", size)
+	}
+
+	size = vec2.NumOfBits(true)
+	if size != uint64(20) {
+		t.Error("Expected", 20, "got", size)
+	}
+
+	size = vec2.NumOfBits(false)
+	if size != uint64(5981) {
+		t.Error("Expected", 5981, "got", size)
+	}
+
+	for _, v := range rankCases {
+		rank, err := vec2.Rank1(v.pos)
+		if err != nil || rank != v.rank {
+			t.Error("Expected", v.rank, "got", rank)
+		}
+	}
+
+	for _, v := range rankCases {
+		rank, err := vec2.Rank0(v.pos)
+		if err != nil || rank != (v.pos-v.rank) {
+			t.Error("Expected", (v.pos - v.rank), "got", rank)
+		}
+	}
+
+	for _, v := range select1Cases {
+		pos, err := vec2.Select1(v.index)
+		if err != nil || pos != v.pos {
+			t.Error("Expected", v.pos, "got", pos)
+		}
+	}
+
+	for _, v := range select0Cases {
+		pos, err := vec2.Select0(v.index)
+		if err != nil || pos != v.pos {
+			t.Error("Expected", v.pos, "got", pos)
+		}
+	}
+
 }
