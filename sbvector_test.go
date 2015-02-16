@@ -416,7 +416,7 @@ func TestMarshal(t *testing.T) {
 	if err == nil {
 		t.Error()
 	}
-	buf = make([]byte, 8)
+	buf = make([]byte, minimumSize + 1)
 	binary.LittleEndian.PutUint64(buf, uint64(minimumSize))
 	err = vec3.UnmarshalBinary(buf)
 	if err == nil {
