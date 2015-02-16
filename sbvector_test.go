@@ -1,6 +1,7 @@
 package sbvector
 
 import (
+	"encoding/binary"
 	"testing"
 )
 
@@ -409,4 +410,16 @@ func TestMarshal(t *testing.T) {
 		}
 	}
 
+	vec3, _ := NewVector()
+	var buf []byte
+	err = vec3.UnmarshalBinary(buf)
+	if err == nil {
+		t.Error()
+	}
+	buf = make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uint64(minimumSize))
+	err = vec3.UnmarshalBinary(buf)
+	if err == nil {
+		t.Error()
+	}
 }

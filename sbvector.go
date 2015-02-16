@@ -139,6 +139,12 @@ var selectTable = [8][256]uint8{
 		7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 6},
 }
 
+var (
+	// ErrorOutOfRange indicates out of range access error.
+	ErrorOutOfRange  = errors.New("Out of range access")
+	ErrorInvalidSize = errors.New("UnmarshalBinary: invalid size")
+)
+
 // NewVector returns a new succinct bit vector
 func NewVector() (SuccinctBitVector, error) {
 	vec := new(BitVectorData)
@@ -148,7 +154,7 @@ func NewVector() (SuccinctBitVector, error) {
 // Get returns value from bit vector by index.
 func (vec *BitVectorData) Get(i uint64) (bool, error) {
 	if i > vec.size {
-		return false, errors.New("Out of Bounds")
+		return false, ErrorOutOfRange
 	}
 	return (vec.blocks[i/sBlockSize] & (1 << (i % sBlockSize))) != 0, nil
 }
@@ -156,7 +162,7 @@ func (vec *BitVectorData) Get(i uint64) (bool, error) {
 //GetBits returns bits from bit vector.
 func (vec *BitVectorData) GetBits(pos uint64, length uint64) (uint64, error) {
 	if (pos + length) > vec.size {
-		return NotFound, errors.New("Out of Bounds")
+		return NotFound, ErrorOutOfRange
 	}
 	var blockIdx1 = pos / sBlockSize
 	var blockOffset1 = pos % sBlockSize
@@ -322,7 +328,7 @@ func (vec *BitVectorData) Build(enableFasterSelect1 bool, enableFasterSelect0 bo
 // Rank1 returns number of the bits equal to `1` up to positin `i`
 func (vec *BitVectorData) Rank1(i uint64) (uint64, error) {
 	if i > vec.size {
-		return NotFound, errors.New("Out of Bounds")
+		return NotFound, ErrorOutOfRange
 	}
 	var rankID = i / lBlockSize
 	var blockID = i / sBlockSize
@@ -372,7 +378,7 @@ func (vec *BitVectorData) Rank(i uint64, b bool) (uint64, error) {
 func (vec *BitVectorData) Select1(x uint64) (uint64, error) {
 	var vecSize = vec.NumOfBits(true)
 	if vecSize <= x {
-		return NotFound, errors.New("Out of Bounds")
+		return NotFound, ErrorOutOfRange
 	}
 
 	var begin uint64
@@ -443,7 +449,7 @@ func (vec *BitVectorData) Select1(x uint64) (uint64, error) {
 func (vec *BitVectorData) Select0(x uint64) (uint64, error) {
 	var vecSize = vec.NumOfBits(false)
 	if vecSize <= x {
-		return NotFound, errors.New("Out of Bounds")
+		return NotFound, ErrorOutOfRange
 	}
 
 	var begin uint64
@@ -586,7 +592,7 @@ func (vec *BitVectorData) MarshalBinary() ([]byte, error) {
 func (vec *BitVectorData) UnmarshalBinary(data []byte) error {
 	buf := data
 	if uint64(len(data)) < minimumSize {
-		return errors.New("no data")
+		return ErrorInvalidSize
 	}
 	var offset int
 	offset = 0
@@ -594,7 +600,7 @@ func (vec *BitVectorData) UnmarshalBinary(data []byte) error {
 	offset += 8
 	dataSize := binary.LittleEndian.Uint64(buf)
 	if uint64(len(data)) != dataSize {
-		return errors.New("Invalid Size")
+		return ErrorInvalidSize
 	}
 
 	buf = data[offset : offset+8]
