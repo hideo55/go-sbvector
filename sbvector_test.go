@@ -416,9 +416,16 @@ func TestMarshal(t *testing.T) {
 	if err == nil {
 		t.Error()
 	}
-	buf = make([]byte, minimumSize + 1)
+	buf = make([]byte, minimumSize+1)
 	binary.LittleEndian.PutUint64(buf, uint64(minimumSize))
 	err = vec3.UnmarshalBinary(buf)
+	if err == nil {
+		t.Error()
+	}
+
+	var ri rankIndex
+	ribuf := make([]byte, 15)
+	err = ri.UnmarshalBinary(ribuf)
 	if err == nil {
 		t.Error()
 	}
