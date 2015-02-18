@@ -76,6 +76,8 @@ const (
 	lBlockSize  uint64 = 512
 	blockRate   uint64 = 8
 	minimumSize uint64 = 40
+	sizeOfInt32 uint64 = 4
+	sizeOfInt64 uint64 = 8
 	// NotFound indicates `value not found`
 	NotFound uint64 = 0xFFFFFFFFFFFFFFFF
 )
@@ -547,19 +549,16 @@ func (vec *BitVectorData) MarshalBinary() ([]byte, error) {
 	select1TableSize := uint32(len(vec.select1Table))
 	select0TableSize := uint32(len(vec.select0Table))
 
-	var tmpUint32 uint32
 	var tmpRankIndex rankIndex
-	sizeOfUint32 := uint64(unsafe.Sizeof(tmpUint32))
-	sizeOfUint64 := uint64(unsafe.Sizeof(vec.size))
 	sizeOfRI := uint64(unsafe.Sizeof(tmpRankIndex))
 
 	var serializedSize uint64
-	serializedSize = uint64(blockNum) * sizeOfUint64
+	serializedSize = uint64(blockNum) * sizeOfInt64
 	serializedSize += uint64(rankIndexSize) * sizeOfRI
-	serializedSize += uint64(select1TableSize) * sizeOfUint64
-	serializedSize += uint64(select0TableSize) * sizeOfUint64
-	serializedSize += sizeOfUint64 * 3 /* Sizeof(serializedSize) + Sizeof(vec.size) + Sizeof(vec.numOf1s) */
-	serializedSize += sizeOfUint32 * 4 /* Sizeof(blockNum) + Sizeof(rankIndexSize) + Sizeof(select1TableSize) + Sizeof(select0TableSize) */
+	serializedSize += uint64(select1TableSize) * sizeOfInt64
+	serializedSize += uint64(select0TableSize) * sizeOfInt64
+	serializedSize += sizeOfInt64 * 3 /* Sizeof(serializedSize) + Sizeof(vec.size) + Sizeof(vec.numOf1s) */
+	serializedSize += sizeOfInt32 * 4 /* Sizeof(blockNum) + Sizeof(rankIndexSize) + Sizeof(select1TableSize) + Sizeof(select0TableSize) */
 	binary.Write(buffer, binary.LittleEndian, &serializedSize)
 	binary.Write(buffer, binary.LittleEndian, &vec.size)
 	binary.Write(buffer, binary.LittleEndian, &vec.numOf1s)
@@ -594,61 +593,61 @@ func (vec *BitVectorData) UnmarshalBinary(data []byte) error {
 	if uint64(len(data)) < minimumSize {
 		return ErrorInvalidSize
 	}
-	var offset int
+	var offset uint64
 	offset = 0
-	buf = data[offset : offset+8]
-	offset += 8
+	buf = data[offset : offset+sizeOfInt64]
+	offset += sizeOfInt64
 	dataSize := binary.LittleEndian.Uint64(buf)
 	if uint64(len(data)) != dataSize {
 		return ErrorInvalidSize
 	}
 
-	buf = data[offset : offset+8]
-	offset += 8
+	buf = data[offset : offset+sizeOfInt64]
+	offset += sizeOfInt64
 	vec.size = binary.LittleEndian.Uint64(buf)
 
-	buf = data[offset : offset+8]
-	offset += 8
+	buf = data[offset : offset+sizeOfInt64]
+	offset += sizeOfInt64
 	vec.numOf1s = binary.LittleEndian.Uint64(buf)
 
-	buf = data[offset : offset+4]
-	offset += 4
+	buf = data[offset : offset+sizeOfInt32]
+	offset += sizeOfInt32
 	blockNum := binary.LittleEndian.Uint32(buf)
 	vec.blocks = make([]uint64, blockNum)
 	for i := uint32(0); i < blockNum; i++ {
-		buf = data[offset : offset+8]
-		offset += 8
+		buf = data[offset : offset+sizeOfInt64]
+		offset += sizeOfInt64
 		vec.blocks[i] = binary.LittleEndian.Uint64(buf)
 	}
 
-	buf = data[offset : offset+4]
-	offset += 4
+	buf = data[offset : offset+sizeOfInt32]
+	offset += sizeOfInt32
 	rankIndexSize := binary.LittleEndian.Uint32(buf)
 	vec.ranks = make([]rankIndex, rankIndexSize)
 	sizeOfRI := unsafe.Sizeof(vec.ranks[0])
 	for i := uint32(0); i < rankIndexSize; i++ {
-		buf = data[offset : offset+int(sizeOfRI)]
-		offset += int(sizeOfRI)
+		buf = data[offset : offset+uint64(sizeOfRI)]
+		offset += uint64(sizeOfRI)
 		vec.ranks[i].UnmarshalBinary(buf)
 	}
 
-	buf = data[offset : offset+4]
-	offset += 4
+	buf = data[offset : offset+sizeOfInt32]
+	offset += sizeOfInt32
 	select1TableSize := binary.LittleEndian.Uint32(buf)
 	vec.select1Table = make([]uint64, select1TableSize)
 	for i := uint32(0); i < select1TableSize; i++ {
-		buf = data[offset : offset+8]
-		offset += 8
+		buf = data[offset : offset+sizeOfInt64]
+		offset += sizeOfInt64
 		vec.select1Table[i] = binary.LittleEndian.Uint64(buf)
 	}
 
-	buf = data[offset : offset+4]
-	offset += 4
+	buf = data[offset : offset+sizeOfInt32]
+	offset += sizeOfInt32
 	select0TableSize := binary.LittleEndian.Uint32(buf)
 	vec.select0Table = make([]uint64, select0TableSize)
 	for i := uint32(0); i < select0TableSize; i++ {
-		buf = data[offset : offset+8]
-		offset += 8
+		buf = data[offset : offset+sizeOfInt64]
+		offset += sizeOfInt64
 		vec.select0Table[i] = binary.LittleEndian.Uint64(buf)
 	}
 
