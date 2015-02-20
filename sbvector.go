@@ -143,7 +143,7 @@ var selectTable = [8][256]uint8{
 
 var (
 	// ErrorOutOfRange indicates out of range access.
-	ErrorOutOfRange  = errors.New("Out of range access")
+	ErrorOutOfRange = errors.New("Out of range access")
 	// ErrorInvalidLength indicates that the length of slice is invalid.
 	ErrorInvalidLength = errors.New("UnmarshalBinary: invalid length of slice")
 )
