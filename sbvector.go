@@ -142,9 +142,10 @@ var selectTable = [8][256]uint8{
 }
 
 var (
-	// ErrorOutOfRange indicates out of range access error.
+	// ErrorOutOfRange indicates out of range access.
 	ErrorOutOfRange  = errors.New("Out of range access")
-	ErrorInvalidSize = errors.New("UnmarshalBinary: invalid size")
+	// ErrorInvalidLength indicates that the length of slice is invalid.
+	ErrorInvalidLength = errors.New("UnmarshalBinary: invalid length of slice")
 )
 
 // NewVector returns a new succinct bit vector
@@ -591,7 +592,7 @@ func (vec *BitVectorData) MarshalBinary() ([]byte, error) {
 func (vec *BitVectorData) UnmarshalBinary(data []byte) error {
 	buf := data
 	if uint64(len(data)) < minimumSize {
-		return ErrorInvalidSize
+		return ErrorInvalidLength
 	}
 	var offset uint64
 	offset = 0
@@ -599,7 +600,7 @@ func (vec *BitVectorData) UnmarshalBinary(data []byte) error {
 	offset += sizeOfInt64
 	dataSize := binary.LittleEndian.Uint64(buf)
 	if uint64(len(data)) != dataSize {
-		return ErrorInvalidSize
+		return ErrorInvalidLength
 	}
 
 	buf = data[offset : offset+sizeOfInt64]
