@@ -146,6 +146,8 @@ var (
 	ErrorOutOfRange = errors.New("Out of range access")
 	// ErrorInvalidLength indicates that the length of slice is invalid.
 	ErrorInvalidLength = errors.New("UnmarshalBinary: invalid length of slice")
+	// ErrorInvalidFormat indicates that binary format is invalid.
+	ErrorInvalidFormat = errors.New("UnmarshalBinary: invalid binary format")
 )
 
 // NewVector returns a new succinct bit vector
@@ -546,7 +548,7 @@ func (vec *BitVectorData) MarshalBinary() ([]byte, error) {
 	buffer := new(bytes.Buffer)
 
 	blockNum := uint32(len(vec.blocks))
-	rankIndexSize := uint32(len(vec.ranks))
+	rankTableSize := uint32(len(vec.ranks))
 	select1TableSize := uint32(len(vec.select1Table))
 	select0TableSize := uint32(len(vec.select0Table))
 
@@ -555,11 +557,11 @@ func (vec *BitVectorData) MarshalBinary() ([]byte, error) {
 
 	var serializedSize uint64
 	serializedSize = uint64(blockNum) * sizeOfInt64
-	serializedSize += uint64(rankIndexSize) * sizeOfRI
+	serializedSize += uint64(rankTableSize) * sizeOfRI
 	serializedSize += uint64(select1TableSize) * sizeOfInt64
 	serializedSize += uint64(select0TableSize) * sizeOfInt64
 	serializedSize += sizeOfInt64 * 3 /* Sizeof(serializedSize) + Sizeof(vec.size) + Sizeof(vec.numOf1s) */
-	serializedSize += sizeOfInt32 * 4 /* Sizeof(blockNum) + Sizeof(rankIndexSize) + Sizeof(select1TableSize) + Sizeof(select0TableSize) */
+	serializedSize += sizeOfInt32 * 4 /* Sizeof(blockNum) + Sizeof(rankTableSize) + Sizeof(select1TableSize) + Sizeof(select0TableSize) */
 	binary.Write(buffer, binary.LittleEndian, &serializedSize)
 	binary.Write(buffer, binary.LittleEndian, &vec.size)
 	binary.Write(buffer, binary.LittleEndian, &vec.numOf1s)
@@ -569,7 +571,7 @@ func (vec *BitVectorData) MarshalBinary() ([]byte, error) {
 		binary.Write(buffer, binary.LittleEndian, &block)
 	}
 
-	binary.Write(buffer, binary.LittleEndian, &rankIndexSize)
+	binary.Write(buffer, binary.LittleEndian, &rankTableSize)
 	for _, ri := range vec.ranks {
 		buf, err := ri.MarshalBinary()
 		if err != nil {
@@ -614,6 +616,11 @@ func (vec *BitVectorData) UnmarshalBinary(data []byte) error {
 	buf = data[offset : offset+sizeOfInt32]
 	offset += sizeOfInt32
 	blockNum := binary.LittleEndian.Uint32(buf)
+
+	if (offset + uint64(blockNum)*sizeOfInt64) > uint64(len(data)) {
+		return ErrorInvalidFormat
+	}
+
 	vec.blocks = make([]uint64, blockNum)
 	for i := uint32(0); i < blockNum; i++ {
 		buf = data[offset : offset+sizeOfInt64]
@@ -623,18 +630,29 @@ func (vec *BitVectorData) UnmarshalBinary(data []byte) error {
 
 	buf = data[offset : offset+sizeOfInt32]
 	offset += sizeOfInt32
-	rankIndexSize := binary.LittleEndian.Uint32(buf)
-	vec.ranks = make([]rankIndex, rankIndexSize)
+	rankTableSize := binary.LittleEndian.Uint32(buf)
+	var tmpRankIndex rankIndex
+	sizeOfRankIndex := uint64(unsafe.Sizeof(tmpRankIndex))
+	if (offset + sizeOfRankIndex*uint64(rankTableSize)) > uint64(len(data)) {
+		return ErrorInvalidFormat
+	}
+	vec.ranks = make([]rankIndex, rankTableSize)
 	sizeOfRI := unsafe.Sizeof(vec.ranks[0])
-	for i := uint32(0); i < rankIndexSize; i++ {
+	for i := uint32(0); i < rankTableSize; i++ {
 		buf = data[offset : offset+uint64(sizeOfRI)]
 		offset += uint64(sizeOfRI)
-		vec.ranks[i].UnmarshalBinary(buf)
+		err := vec.ranks[i].UnmarshalBinary(buf)
+		if err != nil {
+			return ErrorInvalidFormat
+		}
 	}
 
 	buf = data[offset : offset+sizeOfInt32]
 	offset += sizeOfInt32
 	select1TableSize := binary.LittleEndian.Uint32(buf)
+	if (offset + uint64(select1TableSize)*sizeOfInt64) > uint64(len(data)) {
+		return ErrorInvalidFormat
+	}
 	vec.select1Table = make([]uint64, select1TableSize)
 	for i := uint32(0); i < select1TableSize; i++ {
 		buf = data[offset : offset+sizeOfInt64]
@@ -645,6 +663,9 @@ func (vec *BitVectorData) UnmarshalBinary(data []byte) error {
 	buf = data[offset : offset+sizeOfInt32]
 	offset += sizeOfInt32
 	select0TableSize := binary.LittleEndian.Uint32(buf)
+	if (offset + uint64(select0TableSize)*sizeOfInt64) != uint64(len(data)) {
+		return ErrorInvalidFormat
+	}
 	vec.select0Table = make([]uint64, select0TableSize)
 	for i := uint32(0); i < select0TableSize; i++ {
 		buf = data[offset : offset+sizeOfInt64]

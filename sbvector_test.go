@@ -244,27 +244,27 @@ func TestOutOfRange(t *testing.T) {
 	vec.Build(true, true)
 
 	bit, err := vec.Get(6002)
-	if err == nil || bit == true {
+	if err == nil || err != ErrorOutOfRange || bit == true {
 		t.Error()
 	}
 
 	rank, err := vec.Rank(6002, true)
-	if err == nil || rank != NotFound {
+	if err == nil || err != ErrorOutOfRange || rank != NotFound {
 		t.Error()
 	}
 
 	rank, err = vec.Rank(6002, false)
-	if err == nil || rank != NotFound {
+	if err == nil || err != ErrorOutOfRange || rank != NotFound {
 		t.Error()
 	}
 
 	pos, err := vec.Select(20, true)
-	if err == nil || pos != NotFound {
+	if err == nil || err != ErrorOutOfRange || pos != NotFound {
 		t.Error()
 	}
 
 	pos, err = vec.Select(5981, false)
-	if err == nil || pos != NotFound {
+	if err == nil || err != ErrorOutOfRange || pos != NotFound {
 		t.Error()
 	}
 }
@@ -303,7 +303,7 @@ func TestMultiBits(t *testing.T) {
 	}
 
 	x, err := vec.GetBits(71, 1)
-	if err == nil {
+	if err == nil || err != ErrorOutOfRange {
 		t.Error()
 	}
 
@@ -413,20 +413,20 @@ func TestMarshal(t *testing.T) {
 	vec3, _ := NewVector()
 	var buf []byte
 	err = vec3.UnmarshalBinary(buf)
-	if err == nil {
-		t.Error()
+	if err == nil || err != ErrorInvalidLength {
+		t.Error(err.Error())
 	}
 	buf = make([]byte, minimumSize+1)
 	binary.LittleEndian.PutUint64(buf, uint64(minimumSize))
 	err = vec3.UnmarshalBinary(buf)
-	if err == nil {
-		t.Error()
+	if err == nil || err != ErrorInvalidLength {
+		t.Error(err.Error())
 	}
 
 	var ri rankIndex
 	ribuf := make([]byte, 15)
 	err = ri.UnmarshalBinary(ribuf)
 	if err == nil {
-		t.Error()
+		t.Error(err.Error())
 	}
 }
