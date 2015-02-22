@@ -429,4 +429,35 @@ func TestMarshal(t *testing.T) {
 	if err == nil {
 		t.Error(err.Error())
 	}
+
+	vec3.PushBack(true)
+	vec3.Build(true, true)
+	buffer, err = vec3.MarshalBinary()
+	badBuf := make([]byte, len(buffer))
+	copy(badBuf, buffer)
+	badBuf[24] = 0xFF
+	err = vec3.UnmarshalBinary(badBuf)
+	if err != ErrorInvalidFormat {
+		t.Error()
+	}
+
+	copy(badBuf, buffer)
+	badBuf[36] = 0xFF
+	err = vec3.UnmarshalBinary(badBuf)
+	if err != ErrorInvalidFormat {
+		t.Error()
+	}
+
+	copy(badBuf, buffer)
+	badBuf[72] = 0xFF
+	err = vec3.UnmarshalBinary(badBuf)
+	if err != ErrorInvalidFormat {
+		t.Error()
+	}
+	copy(badBuf, buffer)
+	badBuf[92] = 0xFF
+	err = vec3.UnmarshalBinary(badBuf)
+	if err != ErrorInvalidFormat {
+		t.Error()
+	}
 }
