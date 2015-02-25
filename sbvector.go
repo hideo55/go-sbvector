@@ -7,16 +7,18 @@ Synopsis
 	)
 
 	func example() {
-		vec, err := sbvector.NewVector()
-		if err != nil {
-			// error handling
-		}
+		builder := sbvector.NewVectorBuilder()
 
-		vec.Set(10, true)
+		builder.Set(10, true)
+		builder.PushBack(true)
 
 		...
 
-		vec.Build(true, true)
+		// build indexes for Rank() and Select()
+		vec, err := builder.Build(true, true)
+		if err !- nil {
+			// error handling
+		}
 
 		pos, err := vec.Select1(0)
 		if err != nil {
@@ -150,7 +152,7 @@ var (
 	ErrorInvalidFormat = errors.New("UnmarshalBinary: invalid binary format")
 )
 
-// NewVectorFromBinary returns new succinct bit vector with unmarshaling binary data.
+// NewVectorFromBinary returns new succinct bit vector that initialize by binary data.
 func NewVectorFromBinary(data []byte) (SuccinctBitVector, error) {
 	vec := new(BitVectorData)
 	err := vec.UnmarshalBinary(data)
