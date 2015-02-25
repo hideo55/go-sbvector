@@ -36,7 +36,7 @@ import (
 	"github.com/hideo55/go-popcount"
 )
 
-// BitVectorData holds impormation about bit vector.
+// BitVectorData holds information about bit vector.
 type BitVectorData struct {
 	blocks       []uint64
 	ranks        []rankIndex
@@ -50,9 +50,6 @@ type BitVectorData struct {
 type SuccinctBitVector interface {
 	encoding.BinaryMarshaler
 	encoding.BinaryUnmarshaler
-	Set(i uint64, val bool)
-	PushBack(b bool)
-	PushBackBits(x uint64, length uint64)
 	Get(i uint64) (bool, error)
 	GetBits(pos uint64, length uint64) (uint64, error)
 	Rank1(i uint64) (uint64, error)
@@ -63,7 +60,10 @@ type SuccinctBitVector interface {
 	Select(x uint64, b bool) (uint64, error)
 	Size() uint64
 	NumOfBits(b bool) uint64
-	Build(enableFasterSelect1 bool, enableFasterSelect0 bool)
+	set(i uint64, val bool)
+	pushBack(b bool)
+	pushBackBits(x uint64, length uint64)
+	build(enableFasterSelect1 bool, enableFasterSelect0 bool)
 }
 
 const (
@@ -150,10 +150,11 @@ var (
 	ErrorInvalidFormat = errors.New("UnmarshalBinary: invalid binary format")
 )
 
-// NewVector returns a new succinct bit vector
-func NewVector() (SuccinctBitVector, error) {
+// NewVectorFromBinary returns new succinct bit vector with unmarshaling binary data.
+func NewVectorFromBinary(data []byte) (SuccinctBitVector, error) {
 	vec := new(BitVectorData)
-	return vec, nil
+	err := vec.UnmarshalBinary(data)
+	return vec, err
 }
 
 // Get returns value from bit vector by index.
@@ -178,8 +179,7 @@ func (vec *BitVectorData) GetBits(pos uint64, length uint64) (uint64, error) {
 	return mask((vec.blocks[blockIdx1]>>blockOffset1)+(vec.blocks[blockIdx2]<<(sBlockSize-blockOffset1)), length), nil
 }
 
-// Set value to bit vector by index.
-func (vec *BitVectorData) Set(i uint64, val bool) {
+func (vec *BitVectorData) set(i uint64, val bool) {
 	var blockID uint64
 	var r uint8
 	blockID = i / sBlockSize
@@ -200,8 +200,7 @@ func (vec *BitVectorData) Set(i uint64, val bool) {
 	}
 }
 
-// PushBack add bit to the bit vector
-func (vec *BitVectorData) PushBack(b bool) {
+func (vec *BitVectorData) pushBack(b bool) {
 	if (vec.size / sBlockSize) >= uint64(len(vec.blocks)) {
 		vec.blocks = append(vec.blocks, uint64(0))
 	}
@@ -216,8 +215,7 @@ func (vec *BitVectorData) PushBack(b bool) {
 	vec.size++
 }
 
-// PushBackBits add bits to the bit vector
-func (vec *BitVectorData) PushBackBits(x uint64, length uint64) {
+func (vec *BitVectorData) pushBackBits(x uint64, length uint64) {
 	var offset = vec.size % sBlockSize
 	if (vec.size+length-1)/sBlockSize >= uint64(len(vec.blocks)) {
 		vec.blocks = append(vec.blocks, uint64(0))
@@ -230,10 +228,7 @@ func (vec *BitVectorData) PushBackBits(x uint64, length uint64) {
 	vec.size += length
 }
 
-// Build creates indexes for succinct bit vector(rank index, ...).
-// If `enableFasterSelect1` is true, creates index for select1 make faster.
-// If `enableFasterSelect0` is true, creates index for select0 make faster.
-func (vec *BitVectorData) Build(enableFasterSelect1 bool, enableFasterSelect0 bool) {
+func (vec *BitVectorData) build(enableFasterSelect1 bool, enableFasterSelect0 bool) {
 	var blockNum = uint64(len(vec.blocks))
 	var numOf1s = lBlockSize
 	var numOf0s = lBlockSize

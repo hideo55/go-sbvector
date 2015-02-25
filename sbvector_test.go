@@ -120,23 +120,27 @@ var (
 )
 
 func TestHasSelectIndex(t *testing.T) {
-	vec, err := NewVector()
-	if err != nil {
-		t.Error()
+	builder := NewVectorBuilder()
+
+	for _, v := range bitCases {
+		builder.Set(v.pos, v.bit)
 	}
 
 	for _, v := range bitCases {
-		vec.Set(v.pos, v.bit)
-	}
-
-	for _, v := range bitCases {
-		x, err := vec.Get(v.pos)
+		x, err := builder.Get(v.pos)
 		if err != nil || x != v.bit {
 			t.Error("Expected", v.bit, "got", x)
 		}
 	}
 
-	vec.Build(true, true)
+	for _, v := range bitCases {
+		x, err := builder.Get(v.pos)
+		if err != nil || x != v.bit {
+			t.Error("Expected", v.bit, "got", x)
+		}
+	}
+
+	vec, _ := builder.Build(true, true)
 
 	for _, v := range bitCases {
 		x, err := vec.Get(v.pos)
@@ -191,16 +195,13 @@ func TestHasSelectIndex(t *testing.T) {
 }
 
 func TestNoSelectIndex(t *testing.T) {
-	vec, err := NewVector()
-	if err != nil {
-		t.Error()
-	}
+	builder := NewVectorBuilder()
 
 	for _, v := range bitCases {
-		vec.Set(v.pos, v.bit)
+		builder.Set(v.pos, v.bit)
 	}
 
-	vec.Build(false, false)
+	vec, _ := builder.Build(false, false)
 
 	for _, v := range bitCases {
 		x, err := vec.Get(v.pos)
@@ -232,16 +233,13 @@ func TestNoSelectIndex(t *testing.T) {
 }
 
 func TestOutOfRange(t *testing.T) {
-	vec, err := NewVector()
-	if err != nil {
-		t.Error()
-	}
+	builder := NewVectorBuilder()
 
 	for _, v := range bitCases {
-		vec.Set(v.pos, v.bit)
+		builder.Set(v.pos, v.bit)
 	}
 
-	vec.Build(true, true)
+	vec, err := builder.Build(true, true)
 
 	bit, err := vec.Get(6002)
 	if err == nil || err != ErrorOutOfRange || bit == true {
@@ -270,17 +268,14 @@ func TestOutOfRange(t *testing.T) {
 }
 
 func TestPushBack(t *testing.T) {
-	vec, err := NewVector()
-	if err != nil {
-		t.Error()
-	}
+	builder := NewVectorBuilder()
 
-	vec.PushBack(true)
-	vec.PushBack(false)
-	vec.PushBack(true)
-	vec.PushBack(true)
+	builder.PushBack(true)
+	builder.PushBack(false)
+	builder.PushBack(true)
+	builder.PushBack(true)
 
-	vec.Build(false, false)
+	vec, err := builder.Build(false, false)
 
 	pos, err := vec.Select1(2)
 	if err != nil || pos != 3 {
@@ -289,20 +284,33 @@ func TestPushBack(t *testing.T) {
 }
 
 func TestMultiBits(t *testing.T) {
-	vec, err := NewVector()
-	if err != nil {
+	builder := NewVectorBuilder()
+	builder.PushBackBits(0x00FFFFFFFFFFFFFF, 63)
+	builder.PushBackBits(0xFF55, 8)
+
+	x, err := builder.GetBits(71, 1)
+	if err == nil || err != ErrorOutOfRange {
 		t.Error()
 	}
-	vec.PushBackBits(0x00FFFFFFFFFFFFFF, 63)
-	vec.PushBackBits(0xFF55, 8)
-	vec.Build(true, true)
+
+	x, err = builder.GetBits(0, 64)
+	if err != nil || x != uint64(0x80ffffffffffffff) {
+		t.Error("Expected", uint64(0x80FFFFFFFFFFFFFF), "got", x)
+	}
+
+	x, err = builder.GetBits(8, 63)
+	if err != nil || x != uint64(0x2A80FFFFFFFFFFFF) {
+		t.Errorf("%x", x)
+	}
+
+	vec, err := builder.Build(true, true)
 
 	size := vec.Size()
 	if size != 71 {
 		t.Error()
 	}
 
-	x, err := vec.GetBits(71, 1)
+	x, err = vec.GetBits(71, 1)
 	if err == nil || err != ErrorOutOfRange {
 		t.Error()
 	}
@@ -324,14 +332,11 @@ func TestMultiBits(t *testing.T) {
 }
 
 func TestDenseVector(t *testing.T) {
-	vec, err := NewVector()
-	if err != nil {
-		t.Error()
-	}
+	builder := NewVectorBuilder()
 	for i := uint64(0); i < uint64(0xFFF); i++ {
-		vec.PushBack(true)
+		builder.PushBack(true)
 	}
-	vec.Build(false, false)
+	vec, err := builder.Build(false, false)
 	pos, err := vec.Select1(513)
 	if err != nil || pos != 513 {
 		t.Error(pos)
@@ -339,24 +344,20 @@ func TestDenseVector(t *testing.T) {
 }
 
 func TestMarshal(t *testing.T) {
-	vec, err := NewVector()
-	if err != nil {
-		t.Error()
-	}
+	builder := NewVectorBuilder()
 
 	for _, v := range bitCases {
-		vec.Set(v.pos, v.bit)
+		builder.Set(v.pos, v.bit)
 	}
 
-	vec.Build(true, true)
+	vec, err := builder.Build(true, true)
 
 	buffer, err := vec.MarshalBinary()
 	if err != nil || len(buffer) == 0 {
 		t.Error()
 	}
 
-	vec2, err := NewVector()
-	err = vec2.UnmarshalBinary(buffer)
+	vec2, err := NewVectorFromBinary(buffer)
 	if err != nil {
 		t.Error(err)
 	}
@@ -410,9 +411,8 @@ func TestMarshal(t *testing.T) {
 		}
 	}
 
-	vec3, _ := NewVector()
 	var buf []byte
-	err = vec3.UnmarshalBinary(buf)
+	vec3, err := NewVectorFromBinary(buf)
 	if err == nil || err != ErrorInvalidLength {
 		t.Error(err.Error())
 	}
@@ -430,8 +430,9 @@ func TestMarshal(t *testing.T) {
 		t.Error(err.Error())
 	}
 
-	vec3.PushBack(true)
-	vec3.Build(true, true)
+	builder = NewVectorBuilderWithInit(vec3.(*BitVectorData))
+	builder.PushBack(true)
+	vec3, err = builder.Build(true, true)
 	buffer, err = vec3.MarshalBinary()
 	badBuf := make([]byte, len(buffer))
 	copy(badBuf, buffer)
