@@ -570,10 +570,7 @@ func (vec *BitVectorData) MarshalBinary() ([]byte, error) {
 
 	binary.Write(buffer, binary.LittleEndian, &rankTableSize)
 	for _, ri := range vec.ranks {
-		buf, err := ri.MarshalBinary()
-		if err != nil {
-			return make([]byte, 0), err
-		}
+		buf, _ := ri.MarshalBinary()
 		binary.Write(buffer, binary.LittleEndian, buf)
 	}
 	binary.Write(buffer, binary.LittleEndian, &select1TableSize)
@@ -638,10 +635,7 @@ func (vec *BitVectorData) UnmarshalBinary(data []byte) error {
 	for i := uint32(0); i < rankTableSize; i++ {
 		buf = data[offset : offset+uint64(sizeOfRI)]
 		offset += uint64(sizeOfRI)
-		err := vec.ranks[i].UnmarshalBinary(buf)
-		if err != nil {
-			return ErrorInvalidFormat
-		}
+		vec.ranks[i].UnmarshalBinary(buf)
 	}
 
 	buf = data[offset : offset+sizeOfInt32]
