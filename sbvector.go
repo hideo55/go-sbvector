@@ -16,7 +16,7 @@ Synopsis
 
 		// build indexes for Rank() and Select()
 		vec, err := builder.Build(true, true)
-		if err !- nil {
+		if err != nil {
 			// error handling
 		}
 
