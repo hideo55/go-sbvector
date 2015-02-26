@@ -139,6 +139,11 @@ func TestHasSelectIndex(t *testing.T) {
 			t.Error("Expected", v.bit, "got", x)
 		}
 	}
+	
+	size := builder.Size()
+	if size != uint64(6001) {
+		t.Error("Expected", 6001, "got", size)
+	}
 
 	vec, _ := builder.Build(true, true)
 
@@ -149,7 +154,7 @@ func TestHasSelectIndex(t *testing.T) {
 		}
 	}
 
-	size := vec.Size()
+	size = vec.Size()
 	if size != uint64(6001) {
 		t.Error("Expected", 6001, "got", size)
 	}
