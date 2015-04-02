@@ -2,7 +2,7 @@ package sbvector
 
 // BitVectorBuilderData holds bit vector data to build.
 type BitVectorBuilderData struct {
-	vec *BitVectorData
+	vec *bitVectorData
 }
 
 // SuccinctBitVectorBuilder is interface of succinct bit vector builder.
@@ -19,12 +19,12 @@ type SuccinctBitVectorBuilder interface {
 // NewVectorBuilder returns new succinct bit vector builder.
 func NewVectorBuilder() SuccinctBitVectorBuilder {
 	builder := new(BitVectorBuilderData)
-	builder.vec = new(BitVectorData)
+	builder.vec = new(bitVectorData)
 	return builder
 }
 
 // NewVectorBuilderWithInit returns new succinct bit vector builder(initialize by argument).
-func NewVectorBuilderWithInit(vec *BitVectorData) SuccinctBitVectorBuilder {
+func NewVectorBuilderWithInit(vec *bitVectorData) SuccinctBitVectorBuilder {
 	builder := new(BitVectorBuilderData)
 	builder.vec = vec
 	return builder
@@ -66,6 +66,6 @@ func (builder *BitVectorBuilderData) Size() uint64 {
 func (builder *BitVectorBuilderData) Build(enableFasterSelect1 bool, enableFasterSelect0 bool) (SuccinctBitVector, error) {
 	builder.vec.build(enableFasterSelect1, enableFasterSelect0)
 	vec := builder.vec
-	builder.vec = new(BitVectorData)
+	builder.vec = new(bitVectorData)
 	return vec, nil
 }

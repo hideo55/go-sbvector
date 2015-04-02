@@ -435,7 +435,7 @@ func TestMarshal(t *testing.T) {
 		t.Error(err.Error())
 	}
 
-	builder = NewVectorBuilderWithInit(vec3.(*BitVectorData))
+	builder = NewVectorBuilderWithInit(vec3.(*bitVectorData))
 	builder.PushBack(true)
 	vec3, err = builder.Build(true, true)
 	buffer, err = vec3.MarshalBinary()
