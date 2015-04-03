@@ -38,8 +38,8 @@ import (
 	"github.com/hideo55/go-popcount"
 )
 
-// bitVectorData holds information about bit vector.
-type bitVectorData struct {
+// BitVectorData holds information about bit vector.
+type BitVectorData struct {
 	blocks       []uint64
 	ranks        []rankIndex
 	select1Table []uint64
@@ -154,13 +154,13 @@ var (
 
 // NewVectorFromBinary returns new succinct bit vector that initialize by binary data.
 func NewVectorFromBinary(data []byte) (SuccinctBitVector, error) {
-	vec := new(bitVectorData)
+	vec := new(BitVectorData)
 	err := vec.UnmarshalBinary(data)
 	return vec, err
 }
 
 // Get returns value from bit vector by index.
-func (vec *bitVectorData) Get(i uint64) (bool, error) {
+func (vec *BitVectorData) Get(i uint64) (bool, error) {
 	if i > vec.size {
 		return false, ErrorOutOfRange
 	}
@@ -168,7 +168,7 @@ func (vec *bitVectorData) Get(i uint64) (bool, error) {
 }
 
 //GetBits returns bits from bit vector.
-func (vec *bitVectorData) GetBits(pos uint64, length uint64) (uint64, error) {
+func (vec *BitVectorData) GetBits(pos uint64, length uint64) (uint64, error) {
 	if (pos + length) > vec.size {
 		return NotFound, ErrorOutOfRange
 	}
@@ -181,7 +181,7 @@ func (vec *bitVectorData) GetBits(pos uint64, length uint64) (uint64, error) {
 	return mask((vec.blocks[blockIdx1]>>blockOffset1)+(vec.blocks[blockIdx2]<<(sBlockSize-blockOffset1)), length), nil
 }
 
-func (vec *bitVectorData) set(i uint64, val bool) {
+func (vec *BitVectorData) set(i uint64, val bool) {
 	var blockID uint64
 	var r uint8
 	blockID = i / sBlockSize
@@ -202,7 +202,7 @@ func (vec *bitVectorData) set(i uint64, val bool) {
 	}
 }
 
-func (vec *bitVectorData) pushBack(b bool) {
+func (vec *BitVectorData) pushBack(b bool) {
 	if (vec.size / sBlockSize) >= uint64(len(vec.blocks)) {
 		vec.blocks = append(vec.blocks, uint64(0))
 	}
@@ -217,7 +217,7 @@ func (vec *bitVectorData) pushBack(b bool) {
 	vec.size++
 }
 
-func (vec *bitVectorData) pushBackBits(x uint64, length uint64) {
+func (vec *BitVectorData) pushBackBits(x uint64, length uint64) {
 	var offset = vec.size % sBlockSize
 	if (vec.size+length-1)/sBlockSize >= uint64(len(vec.blocks)) {
 		vec.blocks = append(vec.blocks, uint64(0))
@@ -230,7 +230,7 @@ func (vec *bitVectorData) pushBackBits(x uint64, length uint64) {
 	vec.size += length
 }
 
-func (vec *bitVectorData) build(enableFasterSelect1 bool, enableFasterSelect0 bool) {
+func (vec *BitVectorData) build(enableFasterSelect1 bool, enableFasterSelect0 bool) {
 	var blockNum = uint64(len(vec.blocks))
 	var numOf1s = lBlockSize
 	var numOf0s = lBlockSize
@@ -328,7 +328,7 @@ func (vec *bitVectorData) build(enableFasterSelect1 bool, enableFasterSelect0 bo
 }
 
 // Rank1 returns number of the bits equal to `1` up to positin `i`
-func (vec *bitVectorData) Rank1(i uint64) (uint64, error) {
+func (vec *BitVectorData) Rank1(i uint64) (uint64, error) {
 	if i > vec.size {
 		return NotFound, ErrorOutOfRange
 	}
@@ -360,7 +360,7 @@ func (vec *bitVectorData) Rank1(i uint64) (uint64, error) {
 }
 
 // Rank0 returns number of the bits equal to `0` up to positin `i`
-func (vec *bitVectorData) Rank0(i uint64) (uint64, error) {
+func (vec *BitVectorData) Rank0(i uint64) (uint64, error) {
 	rank, err := vec.Rank1(i)
 	if err != nil {
 		return rank, err
@@ -369,7 +369,7 @@ func (vec *bitVectorData) Rank0(i uint64) (uint64, error) {
 }
 
 // Rank returns number of the bits equal to `b` up to position `i`
-func (vec *bitVectorData) Rank(i uint64, b bool) (uint64, error) {
+func (vec *BitVectorData) Rank(i uint64, b bool) (uint64, error) {
 	if b {
 		return vec.Rank1(i)
 	}
@@ -377,7 +377,7 @@ func (vec *bitVectorData) Rank(i uint64, b bool) (uint64, error) {
 }
 
 // Select1 returns the position of the x-th occurence of 1
-func (vec *bitVectorData) Select1(x uint64) (uint64, error) {
+func (vec *BitVectorData) Select1(x uint64) (uint64, error) {
 	var vecSize = vec.NumOfBits(true)
 	if vecSize <= x {
 		return NotFound, ErrorOutOfRange
@@ -448,7 +448,7 @@ func (vec *bitVectorData) Select1(x uint64) (uint64, error) {
 }
 
 // Select0 returns the position of the x-th occurence of 0
-func (vec *bitVectorData) Select0(x uint64) (uint64, error) {
+func (vec *BitVectorData) Select0(x uint64) (uint64, error) {
 	var vecSize = vec.NumOfBits(false)
 	if vecSize <= x {
 		return NotFound, ErrorOutOfRange
@@ -520,7 +520,7 @@ func (vec *bitVectorData) Select0(x uint64) (uint64, error) {
 }
 
 // Select returns the position of the x-th occurrence of `b`
-func (vec *bitVectorData) Select(x uint64, b bool) (uint64, error) {
+func (vec *BitVectorData) Select(x uint64, b bool) (uint64, error) {
 	if b {
 		return vec.Select1(x)
 	}
@@ -528,12 +528,12 @@ func (vec *bitVectorData) Select(x uint64, b bool) (uint64, error) {
 }
 
 // Size returns size of bit vector
-func (vec *bitVectorData) Size() uint64 {
+func (vec *BitVectorData) Size() uint64 {
 	return vec.size
 }
 
 // NumOfBits returns number of bits that matches with argument in the bit vector.
-func (vec *bitVectorData) NumOfBits(b bool) uint64 {
+func (vec *BitVectorData) NumOfBits(b bool) uint64 {
 	if b {
 		return vec.numOf1s
 	}
@@ -541,7 +541,7 @@ func (vec *bitVectorData) NumOfBits(b bool) uint64 {
 }
 
 // MarshalBinary implements the encoding.BinaryMarshaler interface.
-func (vec *bitVectorData) MarshalBinary() ([]byte, error) {
+func (vec *BitVectorData) MarshalBinary() ([]byte, error) {
 	buffer := new(bytes.Buffer)
 
 	blockNum := uint32(len(vec.blocks))
@@ -585,7 +585,7 @@ func (vec *bitVectorData) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary implements the encoding.BinaryUnmarshaler interface.
-func (vec *bitVectorData) UnmarshalBinary(data []byte) error {
+func (vec *BitVectorData) UnmarshalBinary(data []byte) error {
 	buf := data
 	if uint64(len(data)) < minimumSize {
 		return ErrorInvalidLength
