@@ -301,7 +301,7 @@ func (vec *BitVectorData) build(enableFasterSelect1 bool, enableFasterSelect0 bo
 			rank.setRel2(vec.numOf1s - rank.abs())
 			fallthrough
 		case 2:
-			rank.setRel3(2 /*vec.numOf1s - rank.abs()*/)
+			rank.setRel3(vec.numOf1s - rank.abs())
 			fallthrough
 		case 3:
 			rank.setRel4(vec.numOf1s - rank.abs())
